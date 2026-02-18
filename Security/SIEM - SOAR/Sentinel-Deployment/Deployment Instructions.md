@@ -109,9 +109,11 @@ az provider register --namespace Microsoft.SecurityInsights
 ```
 Security/SIEM - SOAR/Sentinel-Deployment/
 ├── 01-resource-provider-Sentinel.json          # Standalone ARM template for provider registration
+├── azure-budget.json                            # ARM template for budget and cost alert notifications
 ├── azure-pipelines.yml                          # Azure DevOps pipeline definition
 ├── sentinel-deployment.json                     # ARM template for all resources (workspace, Sentinel, connectors, UEBA, IAM)
 ├── Deployment Instructions.md                   # This file
+├── README - Azure Budget.md                     # Guide for budget deployment at all scopes (MG, sub, RG)
 └── README - Resource Provider Registration.md   # Guide for standalone provider registration and verification
 ```
 
@@ -660,6 +662,25 @@ Any ingestion beyond this free allowance is charged at the Pay-As-You-Go rate sh
 - Use **Basic Logs** for high-volume, low-value tables (cheaper ingestion, limited query)
 - Archive data beyond 90 days to **Archive tier** at ~$0.02/GB/month
 - Review the **Sentinel Free Trial** — 10 GB/day free for the first 31 days on new workspaces
+
+### Azure Budget Alerts
+
+Use the `azure-budget.json` template to create a budget with cost alert notifications for your Sentinel deployment. The template supports deployment at **management group**, **subscription**, or **resource group** scope and sends email alerts at configurable soft and hard spending thresholds.
+
+**Quick deployment (subscription-level budget for £500/month):**
+
+```bash
+az deployment sub create \
+  --location "uksouth" \
+  --template-file "azure-budget.json" \
+  --parameters \
+    budgetName="budget-sentinel-monthly" \
+    budgetAmount=500 \
+    startDate="2026-03-01" \
+    contactEmails='["secops@contoso.com"]'
+```
+
+This creates alerts at **80% (soft limit)** and **100% (hard limit)** of the budget, plus a **forecasted spend** alert. See `README - Azure Budget.md` for full deployment options, examples, and instructions for all three scopes.
 
 ---
 

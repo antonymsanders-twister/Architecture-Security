@@ -1,0 +1,221 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2018-05-01/subscriptionDeploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "description": "Creates an Azure budget with cost alert notifications at configurable soft and hard thresholds. Supports deployment at management group, subscription, or resource group scope. Sends email alerts when actual or forecasted spend reaches the configured percentages."
+  },
+  "parameters": {
+    "budgetName": {
+      "type": "string",
+      "defaultValue": "budget-monthly",
+      "metadata": {
+        "description": "Name of the budget. Must be unique within the scope."
+      }
+    },
+    "budgetAmount": {
+      "type": "int",
+      "metadata": {
+        "description": "Total budget amount in the subscription's billing currency (e.g., 1000 for £1,000 or $1,000)."
+      }
+    },
+    "timeGrain": {
+      "type": "string",
+      "defaultValue": "Monthly",
+      "allowedValues": [
+        "Monthly",
+        "Quarterly",
+        "Annually",
+        "BillingMonth",
+        "BillingQuarter",
+        "BillingAnnual"
+      ],
+      "metadata": {
+        "description": "The time period that the budget tracks. Monthly is the most common for operational budgets."
+      }
+    },
+    "startDate": {
+      "type": "string",
+      "metadata": {
+        "description": "Budget start date in YYYY-MM-01 format. Must be the first day of a month and no earlier than the current month (e.g., 2026-03-01)."
+      }
+    },
+    "endDate": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Budget end date in YYYY-MM-01 format. Must be the first day of a month and within 10 years of the start date. Leave empty for a rolling budget with no end date."
+      }
+    },
+    "softLimitPercentage": {
+      "type": "int",
+      "defaultValue": 80,
+      "minValue": 1,
+      "maxValue": 1000,
+      "metadata": {
+        "description": "Percentage of budget amount that triggers the soft limit (warning) alert. Default is 80% — alerts when actual spend reaches this threshold."
+      }
+    },
+    "hardLimitPercentage": {
+      "type": "int",
+      "defaultValue": 100,
+      "minValue": 1,
+      "maxValue": 1000,
+      "metadata": {
+        "description": "Percentage of budget amount that triggers the hard limit (critical) alert. Default is 100% — alerts when actual spend reaches the full budget."
+      }
+    },
+    "forecastAlertPercentage": {
+      "type": "int",
+      "defaultValue": 100,
+      "minValue": 1,
+      "maxValue": 1000,
+      "metadata": {
+        "description": "Percentage of budget that triggers a forecasted spend alert. Default is 100% — alerts when Azure forecasts you will reach the full budget before the period ends."
+      }
+    },
+    "enableForecastAlert": {
+      "type": "bool",
+      "defaultValue": true,
+      "metadata": {
+        "description": "Enable the forecasted spend alert in addition to the actual spend alerts."
+      }
+    },
+    "contactEmails": {
+      "type": "array",
+      "metadata": {
+        "description": "Array of email addresses to receive budget alert notifications. At least one email is required. Example: [\"admin@contoso.com\", \"finance@contoso.com\"]"
+      }
+    },
+    "contactRoles": {
+      "type": "array",
+      "defaultValue": [
+        "Owner",
+        "Contributor"
+      ],
+      "metadata": {
+        "description": "Array of RBAC role names whose members should also receive notifications. Default: Owner and Contributor."
+      }
+    },
+    "actionGroupResourceIds": {
+      "type": "array",
+      "defaultValue": [],
+      "metadata": {
+        "description": "Optional array of Azure Monitor Action Group resource IDs for advanced notification routing (Teams, SMS, webhooks, Logic Apps). Example: [\"/subscriptions/{sub-id}/resourceGroups/{rg}/providers/microsoft.insights/actionGroups/{name}\"]"
+      }
+    },
+    "resourceGroupFilter": {
+      "type": "array",
+      "defaultValue": [],
+      "metadata": {
+        "description": "Optional array of resource group names to scope the budget to specific resource groups within the subscription. Leave empty to apply the budget to the entire subscription. Example: [\"rg-sentinel-prod\", \"rg-security\"]"
+      }
+    },
+    "resourceFilter": {
+      "type": "array",
+      "defaultValue": [],
+      "metadata": {
+        "description": "Optional array of resource IDs to scope the budget to specific resources. Leave empty to apply the budget to the full scope."
+      }
+    },
+    "meterCategoryFilter": {
+      "type": "array",
+      "defaultValue": [],
+      "metadata": {
+        "description": "Optional array of meter categories to filter the budget (e.g., ['Virtual Machines', 'Storage']). Leave empty for all categories."
+      }
+    }
+  },
+  "variables": {
+    "hasEndDate": "[not(empty(parameters('endDate')))]",
+    "timePeriodWithEnd": {
+      "startDate": "[parameters('startDate')]",
+      "endDate": "[parameters('endDate')]"
+    },
+    "timePeriodNoEnd": {
+      "startDate": "[parameters('startDate')]"
+    },
+    "hasResourceGroupFilter": "[greater(length(parameters('resourceGroupFilter')), 0)]",
+    "hasResourceFilter": "[greater(length(parameters('resourceFilter')), 0)]",
+    "hasMeterCategoryFilter": "[greater(length(parameters('meterCategoryFilter')), 0)]",
+    "hasAnyFilter": "[or(or(variables('hasResourceGroupFilter'), variables('hasResourceFilter')), variables('hasMeterCategoryFilter'))]",
+    "filterWithValues": {
+      "resourceGroups": "[if(variables('hasResourceGroupFilter'), parameters('resourceGroupFilter'), createArray())]",
+      "resources": "[if(variables('hasResourceFilter'), parameters('resourceFilter'), createArray())]",
+      "meters": "[if(variables('hasMeterCategoryFilter'), parameters('meterCategoryFilter'), createArray())]"
+    },
+    "softLimitNotification": {
+      "enabled": true,
+      "operator": "GreaterThanOrEqualTo",
+      "threshold": "[parameters('softLimitPercentage')]",
+      "thresholdType": "Actual",
+      "contactEmails": "[parameters('contactEmails')]",
+      "contactRoles": "[parameters('contactRoles')]",
+      "contactGroups": "[parameters('actionGroupResourceIds')]"
+    },
+    "hardLimitNotification": {
+      "enabled": true,
+      "operator": "GreaterThanOrEqualTo",
+      "threshold": "[parameters('hardLimitPercentage')]",
+      "thresholdType": "Actual",
+      "contactEmails": "[parameters('contactEmails')]",
+      "contactRoles": "[parameters('contactRoles')]",
+      "contactGroups": "[parameters('actionGroupResourceIds')]"
+    },
+    "forecastNotification": {
+      "enabled": true,
+      "operator": "GreaterThanOrEqualTo",
+      "threshold": "[parameters('forecastAlertPercentage')]",
+      "thresholdType": "Forecasted",
+      "contactEmails": "[parameters('contactEmails')]",
+      "contactRoles": "[parameters('contactRoles')]",
+      "contactGroups": "[parameters('actionGroupResourceIds')]"
+    },
+    "notificationsWithForecast": {
+      "SoftLimit-Actual": "[variables('softLimitNotification')]",
+      "HardLimit-Actual": "[variables('hardLimitNotification')]",
+      "ForecastedLimit": "[variables('forecastNotification')]"
+    },
+    "notificationsWithoutForecast": {
+      "SoftLimit-Actual": "[variables('softLimitNotification')]",
+      "HardLimit-Actual": "[variables('hardLimitNotification')]"
+    }
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Consumption/budgets",
+      "apiVersion": "2023-11-01",
+      "name": "[parameters('budgetName')]",
+      "properties": {
+        "category": "Cost",
+        "amount": "[parameters('budgetAmount')]",
+        "timeGrain": "[parameters('timeGrain')]",
+        "timePeriod": "[if(variables('hasEndDate'), variables('timePeriodWithEnd'), variables('timePeriodNoEnd'))]",
+        "filter": "[if(variables('hasAnyFilter'), variables('filterWithValues'), null())]",
+        "notifications": "[if(parameters('enableForecastAlert'), variables('notificationsWithForecast'), variables('notificationsWithoutForecast'))]"
+      }
+    }
+  ],
+  "outputs": {
+    "budgetId": {
+      "type": "string",
+      "value": "[subscriptionResourceId('Microsoft.Consumption/budgets', parameters('budgetName'))]"
+    },
+    "budgetName": {
+      "type": "string",
+      "value": "[parameters('budgetName')]"
+    },
+    "budgetAmount": {
+      "type": "int",
+      "value": "[parameters('budgetAmount')]"
+    },
+    "alertsSummary": {
+      "type": "object",
+      "value": {
+        "softLimitAt": "[concat(string(parameters('softLimitPercentage')), '% (actual)')]",
+        "hardLimitAt": "[concat(string(parameters('hardLimitPercentage')), '% (actual)')]",
+        "forecastAlertAt": "[if(parameters('enableForecastAlert'), concat(string(parameters('forecastAlertPercentage')), '% (forecasted)'), 'Disabled')]",
+        "notificationRecipients": "[parameters('contactEmails')]"
+      }
+    }
+  }
+}
