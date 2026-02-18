@@ -136,7 +136,11 @@
       "startDate": "[parameters('startDate')]"
     },
     "resourceGroupFilter": {
-      "resourceGroups": "[variables('resourceGroupNamesArray')]"
+      "dimensions": {
+        "name": "ResourceGroupName",
+        "operator": "In",
+        "values": "[variables('resourceGroupNamesArray')]"
+      }
     },
     "softLimitNotification": {
       "enabled": true,
