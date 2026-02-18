@@ -1,0 +1,35 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "description": "Enables the Microsoft Defender for Cloud (Azure Security Center) data connector for Microsoft Sentinel. Ingests security alerts from Defender for Cloud at no additional cost.",
+    "connector": "Microsoft Defender for Cloud",
+    "kind": "AzureSecurityCenter",
+    "cost": "Free",
+    "dataTables": ["SecurityAlert (ASC)"]
+  },
+  "parameters": {
+    "workspaceName": {
+      "type": "string",
+      "metadata": {
+        "description": "Name of the Log Analytics workspace with Sentinel enabled."
+      }
+    }
+  },
+  "resources": [
+    {
+      "type": "Microsoft.OperationalInsights/workspaces/providers/dataConnectors",
+      "apiVersion": "2024-03-01",
+      "name": "[concat(parameters('workspaceName'), '/Microsoft.SecurityInsights/DefenderForCloud')]",
+      "kind": "AzureSecurityCenter",
+      "properties": {
+        "subscriptionId": "[subscription().subscriptionId]",
+        "dataTypes": {
+          "alerts": {
+            "state": "Enabled"
+          }
+        }
+      }
+    }
+  ]
+}

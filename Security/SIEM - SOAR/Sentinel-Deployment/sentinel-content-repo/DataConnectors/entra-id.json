@@ -1,0 +1,35 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "description": "Enables the Microsoft Entra ID (Azure AD) data connector for Microsoft Sentinel. Ingests sign-in logs and audit logs at no additional cost (requires Entra ID P1/P2 licence).",
+    "connector": "Microsoft Entra ID",
+    "kind": "AzureActiveDirectory",
+    "cost": "Free (with P1/P2 licence)",
+    "dataTables": ["SigninLogs", "AuditLogs"]
+  },
+  "parameters": {
+    "workspaceName": {
+      "type": "string",
+      "metadata": {
+        "description": "Name of the Log Analytics workspace with Sentinel enabled."
+      }
+    }
+  },
+  "resources": [
+    {
+      "type": "Microsoft.OperationalInsights/workspaces/providers/dataConnectors",
+      "apiVersion": "2024-03-01",
+      "name": "[concat(parameters('workspaceName'), '/Microsoft.SecurityInsights/EntraID')]",
+      "kind": "AzureActiveDirectory",
+      "properties": {
+        "tenantId": "[subscription().tenantId]",
+        "dataTypes": {
+          "alerts": {
+            "state": "Enabled"
+          }
+        }
+      }
+    }
+  ]
+}

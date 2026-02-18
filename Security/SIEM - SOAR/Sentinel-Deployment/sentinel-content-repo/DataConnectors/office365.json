@@ -1,0 +1,62 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "description": "Enables the Office 365 data connector for Microsoft Sentinel. Ingests Exchange, SharePoint, and Teams audit logs at no additional cost.",
+    "connector": "Office 365",
+    "kind": "Office365",
+    "cost": "Free",
+    "dataTables": ["OfficeActivity"]
+  },
+  "parameters": {
+    "workspaceName": {
+      "type": "string",
+      "metadata": {
+        "description": "Name of the Log Analytics workspace with Sentinel enabled."
+      }
+    },
+    "enableExchange": {
+      "type": "bool",
+      "defaultValue": true,
+      "metadata": {
+        "description": "Enable Exchange audit log ingestion."
+      }
+    },
+    "enableSharePoint": {
+      "type": "bool",
+      "defaultValue": true,
+      "metadata": {
+        "description": "Enable SharePoint audit log ingestion."
+      }
+    },
+    "enableTeams": {
+      "type": "bool",
+      "defaultValue": true,
+      "metadata": {
+        "description": "Enable Teams audit log ingestion."
+      }
+    }
+  },
+  "resources": [
+    {
+      "type": "Microsoft.OperationalInsights/workspaces/providers/dataConnectors",
+      "apiVersion": "2024-03-01",
+      "name": "[concat(parameters('workspaceName'), '/Microsoft.SecurityInsights/Office365')]",
+      "kind": "Office365",
+      "properties": {
+        "tenantId": "[subscription().tenantId]",
+        "dataTypes": {
+          "exchange": {
+            "state": "[if(parameters('enableExchange'), 'Enabled', 'Disabled')]"
+          },
+          "sharePoint": {
+            "state": "[if(parameters('enableSharePoint'), 'Enabled', 'Disabled')]"
+          },
+          "teams": {
+            "state": "[if(parameters('enableTeams'), 'Enabled', 'Disabled')]"
+          }
+        }
+      }
+    }
+  ]
+}

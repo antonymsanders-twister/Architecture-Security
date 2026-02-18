@@ -1,0 +1,38 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "description": "Enables the Microsoft Defender for Cloud Apps (Microsoft Cloud App Security) data connector for Microsoft Sentinel. Ingests alerts and discovery logs at no additional cost.",
+    "connector": "Microsoft Defender for Cloud Apps",
+    "kind": "MicrosoftCloudAppSecurity",
+    "cost": "Free",
+    "dataTables": ["SecurityAlert (MCAS)", "McasShadowItReporting"]
+  },
+  "parameters": {
+    "workspaceName": {
+      "type": "string",
+      "metadata": {
+        "description": "Name of the Log Analytics workspace with Sentinel enabled."
+      }
+    }
+  },
+  "resources": [
+    {
+      "type": "Microsoft.OperationalInsights/workspaces/providers/dataConnectors",
+      "apiVersion": "2024-03-01",
+      "name": "[concat(parameters('workspaceName'), '/Microsoft.SecurityInsights/CloudAppSecurity')]",
+      "kind": "MicrosoftCloudAppSecurity",
+      "properties": {
+        "tenantId": "[subscription().tenantId]",
+        "dataTypes": {
+          "alerts": {
+            "state": "Enabled"
+          },
+          "discoveryLogs": {
+            "state": "Enabled"
+          }
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,183 @@
+name: Deploy Sentinel Free Connectors
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "DataConnectors/**"
+      - "!.github/workflows/**"
+      - ".github/workflows/sentinel-deploy-connectors.yml"
+  workflow_dispatch:
+    inputs:
+      deploy_all:
+        description: "Deploy all connectors regardless of changes"
+        required: false
+        default: "false"
+        type: boolean
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  RESOURCE_GROUP: ${{ vars.SENTINEL_RESOURCE_GROUP }}
+  WORKSPACE_NAME: ${{ vars.SENTINEL_WORKSPACE_NAME }}
+
+jobs:
+  validate:
+    name: Validate Templates
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Login to Azure
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Validate resource group connector templates
+        run: |
+          echo "Validating data connector templates..."
+          FAILED=0
+          for TEMPLATE in DataConnectors/*.json; do
+            FILENAME=$(basename "$TEMPLATE")
+
+            # Skip azure-activity.json — it is a subscription-level template
+            if [ "$FILENAME" = "azure-activity.json" ]; then
+              echo "Skipping $FILENAME (subscription-level template — validated separately)"
+              continue
+            fi
+
+            echo "Validating: $FILENAME"
+            az deployment group validate \
+              --resource-group "$RESOURCE_GROUP" \
+              --template-file "$TEMPLATE" \
+              --parameters workspaceName="$WORKSPACE_NAME" \
+              --output none 2>&1 || { echo "FAILED: $FILENAME"; FAILED=1; }
+          done
+          if [ "$FAILED" -eq 1 ]; then
+            echo "One or more templates failed validation."
+            exit 1
+          fi
+          echo "All resource group templates validated successfully."
+
+      - name: Validate Azure Activity template (subscription scope)
+        run: |
+          echo "Validating: azure-activity.json (subscription scope)"
+          az deployment sub validate \
+            --location "${{ vars.AZURE_LOCATION || 'uksouth' }}" \
+            --template-file "DataConnectors/azure-activity.json" \
+            --parameters \
+              workspaceName="$WORKSPACE_NAME" \
+              workspaceResourceGroup="$RESOURCE_GROUP" \
+            --output none
+          echo "Subscription-level template validated successfully."
+
+  deploy:
+    name: Deploy Connectors
+    needs: validate
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Login to Azure
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Determine changed files
+        id: changes
+        run: |
+          if [ "${{ github.event.inputs.deploy_all }}" = "true" ]; then
+            echo "deploy_all=true" >> "$GITHUB_OUTPUT"
+          else
+            CHANGED=$(git diff --name-only HEAD~1 HEAD -- DataConnectors/ || echo "")
+            echo "changed_files=$CHANGED" >> "$GITHUB_OUTPUT"
+            echo "deploy_all=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Deploy resource group connectors
+        run: |
+          DEPLOY_ALL="${{ steps.changes.outputs.deploy_all }}"
+          CHANGED="${{ steps.changes.outputs.changed_files }}"
+          DEPLOYED=0
+
+          for TEMPLATE in DataConnectors/*.json; do
+            FILENAME=$(basename "$TEMPLATE")
+
+            # Skip azure-activity.json — deployed separately at subscription scope
+            if [ "$FILENAME" = "azure-activity.json" ]; then
+              continue
+            fi
+
+            # Smart deployment — only deploy changed files unless deploy_all is set
+            if [ "$DEPLOY_ALL" != "true" ]; then
+              if ! echo "$CHANGED" | grep -q "$FILENAME"; then
+                echo "Skipping $FILENAME (no changes detected)"
+                continue
+              fi
+            fi
+
+            CONNECTOR_NAME=$(echo "$FILENAME" | sed 's/.json//')
+            echo "Deploying: $FILENAME"
+            az deployment group create \
+              --resource-group "$RESOURCE_GROUP" \
+              --name "connector-$CONNECTOR_NAME-$(date +%Y%m%d%H%M%S)" \
+              --template-file "$TEMPLATE" \
+              --parameters workspaceName="$WORKSPACE_NAME" \
+              --output none
+            echo "Deployed: $FILENAME"
+            DEPLOYED=$((DEPLOYED + 1))
+          done
+
+          echo "Deployed $DEPLOYED resource group connector(s)."
+
+      - name: Deploy Azure Activity connector (subscription scope)
+        run: |
+          DEPLOY_ALL="${{ steps.changes.outputs.deploy_all }}"
+          CHANGED="${{ steps.changes.outputs.changed_files }}"
+
+          if [ "$DEPLOY_ALL" != "true" ]; then
+            if ! echo "$CHANGED" | grep -q "azure-activity.json"; then
+              echo "Skipping azure-activity.json (no changes detected)"
+              exit 0
+            fi
+          fi
+
+          echo "Deploying: azure-activity.json (subscription scope)"
+          az deployment sub create \
+            --location "${{ vars.AZURE_LOCATION || 'uksouth' }}" \
+            --name "connector-azure-activity-$(date +%Y%m%d%H%M%S)" \
+            --template-file "DataConnectors/azure-activity.json" \
+            --parameters \
+              workspaceName="$WORKSPACE_NAME" \
+              workspaceResourceGroup="$RESOURCE_GROUP" \
+            --output none
+          echo "Deployed: azure-activity.json"
+
+      - name: Deployment summary
+        run: |
+          echo "## Deployment Summary" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Setting | Value |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|---|---|" >> "$GITHUB_STEP_SUMMARY"
+          echo "| **Workspace** | \`$WORKSPACE_NAME\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| **Resource Group** | \`$RESOURCE_GROUP\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| **Triggered By** | ${{ github.actor }} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| **Commit** | \`${{ github.sha }}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "### Connectors in Repository" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          for TEMPLATE in DataConnectors/*.json; do
+            FILENAME=$(basename "$TEMPLATE")
+            echo "- \`$FILENAME\`" >> "$GITHUB_STEP_SUMMARY"
+          done

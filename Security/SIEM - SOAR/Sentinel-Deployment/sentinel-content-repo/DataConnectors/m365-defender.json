@@ -1,0 +1,35 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "description": "Enables the Microsoft 365 Defender (Microsoft Defender for Endpoint) data connector for Microsoft Sentinel. Ingests security alerts from the Defender suite at no additional cost.",
+    "connector": "Microsoft 365 Defender",
+    "kind": "MicrosoftDefenderAdvancedThreatProtection",
+    "cost": "Free",
+    "dataTables": ["SecurityAlert (MDATP)"]
+  },
+  "parameters": {
+    "workspaceName": {
+      "type": "string",
+      "metadata": {
+        "description": "Name of the Log Analytics workspace with Sentinel enabled."
+      }
+    }
+  },
+  "resources": [
+    {
+      "type": "Microsoft.OperationalInsights/workspaces/providers/dataConnectors",
+      "apiVersion": "2024-03-01",
+      "name": "[concat(parameters('workspaceName'), '/Microsoft.SecurityInsights/M365Defender')]",
+      "kind": "MicrosoftDefenderAdvancedThreatProtection",
+      "properties": {
+        "tenantId": "[subscription().tenantId]",
+        "dataTypes": {
+          "alerts": {
+            "state": "Enabled"
+          }
+        }
+      }
+    }
+  ]
+}

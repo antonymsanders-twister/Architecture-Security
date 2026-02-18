@@ -1,0 +1,43 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "description": "Enables the Microsoft Threat Intelligence data connector for Microsoft Sentinel. Ingests emerging threat indicators from Microsoft's threat intelligence feed at no additional cost.",
+    "connector": "Microsoft Threat Intelligence",
+    "kind": "MicrosoftThreatIntelligence",
+    "cost": "Free",
+    "dataTables": ["ThreatIntelligenceIndicator"]
+  },
+  "parameters": {
+    "workspaceName": {
+      "type": "string",
+      "metadata": {
+        "description": "Name of the Log Analytics workspace with Sentinel enabled."
+      }
+    },
+    "lookbackPeriod": {
+      "type": "string",
+      "defaultValue": "1970-01-01T00:00:00Z",
+      "metadata": {
+        "description": "The lookback period for the threat intelligence feed. Use '1970-01-01T00:00:00Z' to import all available indicators."
+      }
+    }
+  },
+  "resources": [
+    {
+      "type": "Microsoft.OperationalInsights/workspaces/providers/dataConnectors",
+      "apiVersion": "2024-03-01",
+      "name": "[concat(parameters('workspaceName'), '/Microsoft.SecurityInsights/MicrosoftThreatIntelligence')]",
+      "kind": "MicrosoftThreatIntelligence",
+      "properties": {
+        "tenantId": "[subscription().tenantId]",
+        "dataTypes": {
+          "microsoftEmergingThreatFeed": {
+            "lookbackPeriod": "[parameters('lookbackPeriod')]",
+            "state": "Enabled"
+          }
+        }
+      }
+    }
+  ]
+}

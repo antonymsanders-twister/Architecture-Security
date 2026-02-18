@@ -1,0 +1,76 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2018-05-01/subscriptionDeploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "description": "Enables the Azure Activity data connector for Microsoft Sentinel by configuring a diagnostic setting on the subscription to send Activity Log events to the Log Analytics workspace.",
+    "connector": "Azure Activity",
+    "cost": "Free",
+    "dataTables": ["AzureActivity"],
+    "note": "This connector uses a subscription-level diagnostic setting rather than the SecurityInsights data connector API. Deploy with 'az deployment sub create'."
+  },
+  "parameters": {
+    "workspaceName": {
+      "type": "string",
+      "metadata": {
+        "description": "Name of the Log Analytics workspace with Sentinel enabled."
+      }
+    },
+    "workspaceResourceGroup": {
+      "type": "string",
+      "metadata": {
+        "description": "Resource group containing the Log Analytics workspace."
+      }
+    },
+    "diagnosticSettingName": {
+      "type": "string",
+      "defaultValue": "ds-sentinel-activity-log",
+      "metadata": {
+        "description": "Name for the diagnostic setting on the subscription."
+      }
+    }
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Insights/diagnosticSettings",
+      "apiVersion": "2021-05-01-preview",
+      "name": "[parameters('diagnosticSettingName')]",
+      "properties": {
+        "workspaceId": "[subscriptionResourceId(parameters('workspaceResourceGroup'), 'Microsoft.OperationalInsights/workspaces', parameters('workspaceName'))]",
+        "logs": [
+          {
+            "category": "Administrative",
+            "enabled": true
+          },
+          {
+            "category": "Security",
+            "enabled": true
+          },
+          {
+            "category": "ServiceHealth",
+            "enabled": true
+          },
+          {
+            "category": "Alert",
+            "enabled": true
+          },
+          {
+            "category": "Recommendation",
+            "enabled": true
+          },
+          {
+            "category": "Policy",
+            "enabled": true
+          },
+          {
+            "category": "Autoscale",
+            "enabled": true
+          },
+          {
+            "category": "ResourceHealth",
+            "enabled": true
+          }
+        ]
+      }
+    }
+  ]
+}
