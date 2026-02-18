@@ -2,7 +2,7 @@
   "$schema": "https://schema.management.azure.com/schemas/2018-05-01/subscriptionDeploymentTemplate.json#",
   "contentVersion": "1.0.0.0",
   "metadata": {
-    "description": "Creates an Azure budget with cost alert notifications at configurable soft and hard thresholds. Select a scope (Subscription or Resource Group), set your budget amount, and configure alert thresholds. Sends email alerts when actual or forecasted spend reaches the configured percentages."
+    "description": "Creates an Azure budget with cost alert notifications at configurable soft and hard thresholds. Select a scope (Subscription or Resource Group), set your budget amount, and configure alert thresholds. When 'ResourceGroup' is selected, the budget is deployed directly into the target resource group for proper scoping."
   },
   "parameters": {
     "budgetScope": {
@@ -13,14 +13,14 @@
         "ResourceGroup"
       ],
       "metadata": {
-        "description": "Choose the scope for this budget. 'Subscription' monitors all spending across the entire subscription. 'ResourceGroup' monitors only the resource group(s) specified in resourceGroupNames."
+        "description": "Choose the scope for this budget. 'Subscription' monitors all spending across the entire subscription. 'ResourceGroup' monitors only the specified resource group."
       }
     },
-    "resourceGroupNames": {
+    "resourceGroupName": {
       "type": "string",
       "defaultValue": "",
       "metadata": {
-        "description": "ONLY used when budgetScope is 'ResourceGroup'. Comma-separated list of resource group names to monitor. Example: rg-sentinel-prod,rg-security. Leave empty when budgetScope is 'Subscription'."
+        "description": "ONLY used when budgetScope is 'ResourceGroup'. The name of the resource group to monitor. Must be an existing resource group. Leave empty when budgetScope is 'Subscription'."
       }
     },
     "budgetName": {
@@ -125,8 +125,8 @@
   },
   "variables": {
     "contactEmailsArray": "[split(parameters('contactEmails'), ',')]",
+    "isSubscriptionScope": "[equals(parameters('budgetScope'), 'Subscription')]",
     "isResourceGroupScope": "[equals(parameters('budgetScope'), 'ResourceGroup')]",
-    "resourceGroupNamesArray": "[if(empty(parameters('resourceGroupNames')), createArray(), split(parameters('resourceGroupNames'), ','))]",
     "hasEndDate": "[not(empty(parameters('endDate')))]",
     "timePeriodWithEnd": {
       "startDate": "[parameters('startDate')]",
@@ -135,13 +135,7 @@
     "timePeriodNoEnd": {
       "startDate": "[parameters('startDate')]"
     },
-    "resourceGroupFilter": {
-      "dimensions": {
-        "name": "ResourceGroupName",
-        "operator": "In",
-        "values": "[variables('resourceGroupNamesArray')]"
-      }
-    },
+    "timePeriod": "[if(variables('hasEndDate'), variables('timePeriodWithEnd'), variables('timePeriodNoEnd'))]",
     "softLimitNotification": {
       "enabled": true,
       "operator": "GreaterThanOrEqualTo",
@@ -177,10 +171,12 @@
     "notificationsWithoutForecast": {
       "SoftLimit-Actual": "[variables('softLimitNotification')]",
       "HardLimit-Actual": "[variables('hardLimitNotification')]"
-    }
+    },
+    "notifications": "[if(parameters('enableForecastAlert'), variables('notificationsWithForecast'), variables('notificationsWithoutForecast'))]"
   },
   "resources": [
     {
+      "condition": "[variables('isSubscriptionScope')]",
       "type": "Microsoft.Consumption/budgets",
       "apiVersion": "2023-11-01",
       "name": "[parameters('budgetName')]",
@@ -188,24 +184,84 @@
         "category": "Cost",
         "amount": "[parameters('budgetAmount')]",
         "timeGrain": "[parameters('timeGrain')]",
-        "timePeriod": "[if(variables('hasEndDate'), variables('timePeriodWithEnd'), variables('timePeriodNoEnd'))]",
-        "filter": "[if(variables('isResourceGroupScope'), variables('resourceGroupFilter'), null())]",
-        "notifications": "[if(parameters('enableForecastAlert'), variables('notificationsWithForecast'), variables('notificationsWithoutForecast'))]"
+        "timePeriod": "[variables('timePeriod')]",
+        "notifications": "[variables('notifications')]"
+      }
+    },
+    {
+      "condition": "[variables('isResourceGroupScope')]",
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2022-09-01",
+      "name": "[concat('budget-', parameters('resourceGroupName'))]",
+      "resourceGroup": "[parameters('resourceGroupName')]",
+      "properties": {
+        "mode": "Incremental",
+        "expressionEvaluationOptions": {
+          "scope": "Inner"
+        },
+        "parameters": {
+          "budgetName": {
+            "value": "[parameters('budgetName')]"
+          },
+          "budgetAmount": {
+            "value": "[parameters('budgetAmount')]"
+          },
+          "timeGrain": {
+            "value": "[parameters('timeGrain')]"
+          },
+          "timePeriod": {
+            "value": "[variables('timePeriod')]"
+          },
+          "notifications": {
+            "value": "[variables('notifications')]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "parameters": {
+            "budgetName": {
+              "type": "string"
+            },
+            "budgetAmount": {
+              "type": "int"
+            },
+            "timeGrain": {
+              "type": "string"
+            },
+            "timePeriod": {
+              "type": "object"
+            },
+            "notifications": {
+              "type": "object"
+            }
+          },
+          "resources": [
+            {
+              "type": "Microsoft.Consumption/budgets",
+              "apiVersion": "2023-11-01",
+              "name": "[parameters('budgetName')]",
+              "properties": {
+                "category": "Cost",
+                "amount": "[parameters('budgetAmount')]",
+                "timeGrain": "[parameters('timeGrain')]",
+                "timePeriod": "[parameters('timePeriod')]",
+                "notifications": "[parameters('notifications')]"
+              }
+            }
+          ]
+        }
       }
     }
   ],
   "outputs": {
-    "budgetId": {
-      "type": "string",
-      "value": "[subscriptionResourceId('Microsoft.Consumption/budgets', parameters('budgetName'))]"
-    },
     "budgetName": {
       "type": "string",
       "value": "[parameters('budgetName')]"
     },
     "budgetScope": {
       "type": "string",
-      "value": "[if(variables('isResourceGroupScope'), concat('Resource Group(s): ', parameters('resourceGroupNames')), 'Subscription')]"
+      "value": "[if(variables('isResourceGroupScope'), concat('Resource Group: ', parameters('resourceGroupName')), 'Subscription')]"
     },
     "budgetAmount": {
       "type": "int",

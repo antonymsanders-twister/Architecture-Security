@@ -16,7 +16,9 @@ The first parameter you choose is **budgetScope**, which controls what the budge
 | Scope | What It Monitors | When to Use |
 |---|---|---|
 | **Subscription** | All spending across the entire subscription | General cost governance for the whole subscription |
-| **ResourceGroup** | Only spending in the resource group(s) you specify | Targeted cost monitoring for specific workloads (e.g., Sentinel) |
+| **ResourceGroup** | Only spending in the resource group you specify | Targeted cost monitoring for specific workloads (e.g., Sentinel) |
+
+When you select `ResourceGroup`, the budget is deployed **directly into the target resource group** via a nested deployment — this ensures it is properly scoped (not just filtered at subscription level).
 
 > For **management group** scope, use the Azure CLI or REST API directly — see [Management Group Budget](#management-group-budget-cli-only) below.
 
@@ -50,8 +52,8 @@ The template creates up to three alert notifications:
 
 | Parameter | Type | Default | Description |
 |---|---|---|---|
-| `budgetScope` | string | `Subscription` | **Select the scope:** `Subscription` (monitors entire subscription) or `ResourceGroup` (monitors specific resource groups) |
-| `resourceGroupNames` | string | *(empty)* | **Only used when budgetScope is `ResourceGroup`.** Comma-separated resource group names to monitor. Example: `rg-sentinel-prod,rg-security`. Leave empty for Subscription scope |
+| `budgetScope` | string | `Subscription` | **Select the scope:** `Subscription` (monitors entire subscription) or `ResourceGroup` (monitors a specific resource group) |
+| `resourceGroupName` | string | *(empty)* | **Only used when budgetScope is `ResourceGroup`.** Name of the resource group to monitor. Must be an existing resource group. Leave empty for Subscription scope |
 
 ### Required Parameters
 
@@ -89,14 +91,45 @@ The template creates up to three alert notifications:
 
 ## Deployment Options
 
-### Deploy via Azure Portal — Custom Deployment
+### Option A: Deploy via Template Spec (Recommended — Resource Group Dropdown)
+
+Deploying as a Template Spec gives you the best Portal experience: a **resource group picker dropdown**, slider controls for thresholds, and email validation. The `azure-budget.createUiDefinition.json` file provides this custom UI.
+
+**One-time setup — create the Template Spec:**
+
+```bash
+# Create a Template Spec with the UI definition
+az ts create \
+  --name "azure-budget" \
+  --version "1.0" \
+  --resource-group "rg-template-specs" \
+  --location "uksouth" \
+  --template-file "azure-budget.json" \
+  --ui-form-definition "azure-budget.createUiDefinition.json" \
+  --description "Azure budget with cost alert notifications for subscription or resource group scope"
+```
+
+**Deploy from the Portal:**
+
+1. In the Azure Portal, search for **Template specs**
+2. Select the `azure-budget` Template Spec and click **Deploy**
+3. The custom form appears with:
+   - A **Budget Scope** dropdown (`Subscription` or `Resource Group`)
+   - A **Resource Group picker** (only visible when `Resource Group` is selected)
+   - **Slider controls** for soft/hard thresholds
+   - **Email validation** for alert recipients
+4. Fill in the fields and click **Review + Create**, then **Create**
+
+### Option B: Deploy via Portal — Custom Deployment
+
+If you are not using Template Specs, you can paste the template directly:
 
 1. In the Azure Portal, search for **Deploy a custom template**
 2. Click **Build your own template in the editor**
 3. Paste the contents of `azure-budget.json` and click **Save**
 4. Select your **Subscription** and **Region**
 5. Set **Budget Scope** to `Subscription` or `ResourceGroup`
-6. If you selected `ResourceGroup`, enter the resource group name(s) in **Resource Group Names** (comma-separated)
+6. If you selected `ResourceGroup`, type the resource group name in **Resource Group Name**
 7. Fill in `budgetAmount` and `contactEmails`
 8. Adjust thresholds if needed (defaults: 80% soft, 100% hard)
 9. Click **Review + Create**, then **Create**
@@ -118,29 +151,16 @@ az deployment sub create \
 ### Resource Group Scope — CLI
 
 ```bash
-# Budget for a single resource group
+# Budget scoped to a specific resource group
 az deployment sub create \
   --location "uksouth" \
   --template-file "azure-budget.json" \
   --parameters \
     budgetScope="ResourceGroup" \
-    resourceGroupNames="rg-sentinel-prod" \
+    resourceGroupName="rg-sentinel-prod" \
     budgetName="budget-rg-sentinel-prod" \
     budgetAmount=200 \
     contactEmails="admin@contoso.com"
-```
-
-```bash
-# Budget for multiple resource groups
-az deployment sub create \
-  --location "uksouth" \
-  --template-file "azure-budget.json" \
-  --parameters \
-    budgetScope="ResourceGroup" \
-    resourceGroupNames="rg-sentinel-prod,rg-defender-prod,rg-security-shared" \
-    budgetName="budget-security-rgs" \
-    budgetAmount=1000 \
-    contactEmails="security-team@contoso.com"
 ```
 
 ### Resource Group Scope — PowerShell
@@ -150,7 +170,7 @@ New-AzDeployment `
   -Location "uksouth" `
   -TemplateFile "azure-budget.json" `
   -budgetScope "ResourceGroup" `
-  -resourceGroupNames "rg-sentinel-prod" `
+  -resourceGroupName "rg-sentinel-prod" `
   -budgetName "budget-rg-sentinel-prod" `
   -budgetAmount 200 `
   -contactEmails "admin@contoso.com"

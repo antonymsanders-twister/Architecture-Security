@@ -1,0 +1,188 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/0.1.2-preview/CreateUIDefinition.MultiVm.json#",
+  "handler": "Microsoft.Azure.CreateUIDef",
+  "version": "0.1.2-preview",
+  "parameters": {
+    "basics": [],
+    "steps": [
+      {
+        "name": "scope",
+        "label": "Budget Scope",
+        "elements": [
+          {
+            "name": "budgetScope",
+            "type": "Microsoft.Common.DropDown",
+            "label": "Budget Scope",
+            "defaultValue": "Subscription",
+            "toolTip": "Choose whether the budget monitors the entire subscription or a specific resource group.",
+            "constraints": {
+              "required": true,
+              "allowedValues": [
+                {
+                  "label": "Subscription",
+                  "value": "Subscription"
+                },
+                {
+                  "label": "Resource Group",
+                  "value": "ResourceGroup"
+                }
+              ]
+            }
+          },
+          {
+            "name": "resourceGroupSelector",
+            "type": "Microsoft.Solutions.ResourceSelector",
+            "label": "Resource Group",
+            "toolTip": "Select the resource group to monitor. Only visible when Budget Scope is 'Resource Group'.",
+            "resourceType": "Microsoft.Resources/resourceGroups",
+            "visible": "[equals(steps('scope').budgetScope, 'ResourceGroup')]",
+            "constraints": {
+              "required": "[equals(steps('scope').budgetScope, 'ResourceGroup')]"
+            }
+          }
+        ]
+      },
+      {
+        "name": "budget",
+        "label": "Budget Configuration",
+        "elements": [
+          {
+            "name": "budgetName",
+            "type": "Microsoft.Common.TextBox",
+            "label": "Budget Name",
+            "defaultValue": "budget-monthly",
+            "toolTip": "Name of the budget. Must be unique within the scope.",
+            "constraints": {
+              "required": true,
+              "regex": "^[a-zA-Z0-9\\-_]{1,63}$",
+              "validationMessage": "Budget name must be 1-63 characters and contain only letters, numbers, hyphens, and underscores."
+            }
+          },
+          {
+            "name": "budgetAmount",
+            "type": "Microsoft.Common.TextBox",
+            "label": "Budget Amount",
+            "toolTip": "Total budget amount in the subscription's billing currency (e.g., 1000 for £1,000).",
+            "constraints": {
+              "required": true,
+              "regex": "^[1-9][0-9]*$",
+              "validationMessage": "Budget amount must be a positive integer."
+            }
+          },
+          {
+            "name": "timeGrain",
+            "type": "Microsoft.Common.DropDown",
+            "label": "Time Grain",
+            "defaultValue": "Monthly",
+            "toolTip": "The time period that the budget tracks.",
+            "constraints": {
+              "required": true,
+              "allowedValues": [
+                { "label": "Monthly", "value": "Monthly" },
+                { "label": "Quarterly", "value": "Quarterly" },
+                { "label": "Annually", "value": "Annually" },
+                { "label": "Billing Month", "value": "BillingMonth" },
+                { "label": "Billing Quarter", "value": "BillingQuarter" },
+                { "label": "Billing Annual", "value": "BillingAnnual" }
+              ]
+            }
+          }
+        ]
+      },
+      {
+        "name": "alerts",
+        "label": "Alert Thresholds",
+        "elements": [
+          {
+            "name": "softLimitPercentage",
+            "type": "Microsoft.Common.Slider",
+            "label": "Soft Limit (Warning) — % of Budget",
+            "subLabel": "%",
+            "toolTip": "Sends a warning alert when actual spend reaches this percentage of the budget.",
+            "defaultValue": 80,
+            "min": 1,
+            "max": 200,
+            "showStepMarkers": false,
+            "constraints": {
+              "required": true
+            }
+          },
+          {
+            "name": "hardLimitPercentage",
+            "type": "Microsoft.Common.Slider",
+            "label": "Hard Limit (Critical) — % of Budget",
+            "subLabel": "%",
+            "toolTip": "Sends a critical alert when actual spend reaches this percentage of the budget.",
+            "defaultValue": 100,
+            "min": 1,
+            "max": 200,
+            "showStepMarkers": false,
+            "constraints": {
+              "required": true
+            }
+          },
+          {
+            "name": "enableForecastAlert",
+            "type": "Microsoft.Common.CheckBox",
+            "label": "Enable forecasted spend alert",
+            "toolTip": "Sends an alert when Azure forecasts that spending will reach the budget before the period ends.",
+            "defaultValue": true
+          },
+          {
+            "name": "forecastAlertPercentage",
+            "type": "Microsoft.Common.Slider",
+            "label": "Forecast Alert — % of Budget",
+            "subLabel": "%",
+            "toolTip": "Sends an alert when forecasted spend reaches this percentage.",
+            "defaultValue": 100,
+            "min": 1,
+            "max": 200,
+            "showStepMarkers": false,
+            "visible": "[steps('alerts').enableForecastAlert]",
+            "constraints": {
+              "required": "[steps('alerts').enableForecastAlert]"
+            }
+          }
+        ]
+      },
+      {
+        "name": "notifications",
+        "label": "Notifications",
+        "elements": [
+          {
+            "name": "contactEmails",
+            "type": "Microsoft.Common.TextBox",
+            "label": "Alert Email Addresses",
+            "toolTip": "Comma-separated email addresses to receive budget alerts. At least one is required.",
+            "placeholder": "admin@contoso.com,finance@contoso.com",
+            "constraints": {
+              "required": true,
+              "regex": "^[a-zA-Z0-9._%+\\-]+@[a-zA-Z0-9.\\-]+\\.[a-zA-Z]{2,}(,[a-zA-Z0-9._%+\\-]+@[a-zA-Z0-9.\\-]+\\.[a-zA-Z]{2,})*$",
+              "validationMessage": "Enter one or more valid email addresses separated by commas."
+            }
+          },
+          {
+            "name": "infoBox",
+            "type": "Microsoft.Common.InfoBox",
+            "options": {
+              "text": "Subscription Owners and Contributors will also receive alert emails by default.",
+              "style": "Info"
+            }
+          }
+        ]
+      }
+    ],
+    "outputs": {
+      "budgetScope": "[steps('scope').budgetScope]",
+      "resourceGroupName": "[if(equals(steps('scope').budgetScope, 'ResourceGroup'), last(split(steps('scope').resourceGroupSelector.id, '/')), '')]",
+      "budgetName": "[steps('budget').budgetName]",
+      "budgetAmount": "[int(steps('budget').budgetAmount)]",
+      "timeGrain": "[steps('budget').timeGrain]",
+      "softLimitPercentage": "[steps('alerts').softLimitPercentage]",
+      "hardLimitPercentage": "[steps('alerts').hardLimitPercentage]",
+      "enableForecastAlert": "[steps('alerts').enableForecastAlert]",
+      "forecastAlertPercentage": "[steps('alerts').forecastAlertPercentage]",
+      "contactEmails": "[steps('notifications').contactEmails]"
+    }
+  }
+}
