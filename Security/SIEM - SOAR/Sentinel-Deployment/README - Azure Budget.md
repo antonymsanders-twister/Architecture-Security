@@ -275,7 +275,7 @@ az deployment sub create \
   --template-file "azure-budget.json" \
   --parameters \
     budgetScope="ResourceGroup" \
-    resourceGroupNames="rg-sentinel-prod" \
+    resourceGroupName="rg-sentinel-prod" \
     budgetName="budget-sentinel-rg" \
     budgetAmount=200 \
     contactEmails="sentinel-admins@contoso.com" \
