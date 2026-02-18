@@ -9,6 +9,8 @@
 
 Before Microsoft Sentinel can be deployed, three Azure resource providers must be registered on the target subscription. This template automates the check-and-register process using an Azure `deploymentScript` resource that runs Azure CLI commands inside a container instance.
 
+The script runs under the identity of the **user or service principal that submits the deployment** — no separate Managed Identity is required. If you deploy the template from the Azure CLI, it runs as your logged-in Azure account. If deployed via an Azure DevOps pipeline, it runs as the pipeline's service connection identity.
+
 ### Providers Registered
 
 | Provider Namespace | Required For | Description |
@@ -24,9 +26,10 @@ Before Microsoft Sentinel can be deployed, three Azure resource providers must b
 | Requirement | Details |
 |---|---|
 | **Azure Subscription** | Active subscription where you want to deploy Sentinel |
-| **Permissions** | `Contributor` role on the subscription (required to register resource providers) |
-| **User-Assigned Managed Identity** | A managed identity with `Contributor` rights on the subscription — used by the deployment script container |
+| **Permissions** | `Contributor` role on the subscription (required to register resource providers) — the deploying user or service principal must have this |
 | **Resource Group** | Any existing resource group to host the deployment script resource (the script itself operates at subscription level) |
+
+> **No Managed Identity needed.** The deployment script runs as the user or service principal that submits the deployment (API version `2023-08-01`). The deploying identity just needs `Contributor` on the subscription.
 
 ---
 
@@ -45,13 +48,26 @@ az provider register --namespace Microsoft.SecurityInsights
 
 ### Option B: Deploy the ARM Template
 
+The template runs as your currently logged-in Azure CLI identity — no extra parameters needed for authentication:
+
 ```bash
-# Deploy the template to a resource group
+# Deploy the template to a resource group (runs as the logged-in user)
+az deployment group create \
+  --resource-group "rg-sentinel-prod" \
+  --template-file "01-resource-provider-Sentinel.json"
+```
+
+To selectively skip a provider, pass the toggle parameters:
+
+```bash
+# Example: only register SecurityInsights (skip the other two)
 az deployment group create \
   --resource-group "rg-sentinel-prod" \
   --template-file "01-resource-provider-Sentinel.json" \
   --parameters \
-    userAssignedIdentityResourceId="/subscriptions/<SUB_ID>/resourceGroups/<RG>/providers/Microsoft.ManagedIdentity/userAssignedIdentities/<IDENTITY_NAME>"
+    enableOperationalInsights=false \
+    enableOperationsManagement=false \
+    enableSecurityInsights=true
 ```
 
 ### Option C: Deploy via Azure Portal
@@ -59,9 +75,11 @@ az deployment group create \
 1. Go to **Deploy a custom template** in the Azure Portal
 2. Click **Build your own template in the editor**
 3. Paste the contents of `01-resource-provider-Sentinel.json`
-4. Fill in the `userAssignedIdentityResourceId` parameter
-5. Select the target subscription and resource group
+4. Select the target subscription and resource group
+5. Optionally toggle which providers to register
 6. Click **Review + Create**
+
+The script will run under your Portal login identity.
 
 ---
 
@@ -169,9 +187,9 @@ During the process, providers pass through these states:
 | Issue | Cause | Resolution |
 |---|---|---|
 | Provider stuck in `Registering` | Azure backend processing delay | Wait up to 15 minutes; if still stuck, run `az provider register --namespace <PROVIDER>` again |
-| `AuthorizationFailed` on register | Insufficient permissions | Ensure the identity has `Contributor` role on the subscription |
+| `AuthorizationFailed` on register | Insufficient permissions | Ensure the deploying user or service principal has `Contributor` role on the subscription |
 | Provider shows `NotRegistered` after register command | Command didn't complete | Use `az provider register --namespace <PROVIDER> --wait` to block until complete |
-| `DeploymentScriptError` in template | Managed identity issue | Verify the User-Assigned Managed Identity exists and has `Contributor` role |
+| `DeploymentScriptError` in template | Container instance failed to start | Check the deployment script logs in the resource group; ensure the deploying identity has permission to create container instances |
 | Provider registered but Sentinel deployment still fails | Propagation delay | Wait 2-3 minutes after registration before deploying Sentinel resources |
 
 ### Force Re-Registration
