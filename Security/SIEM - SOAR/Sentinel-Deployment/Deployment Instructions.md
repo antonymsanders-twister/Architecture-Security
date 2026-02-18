@@ -108,9 +108,11 @@ az provider register --namespace Microsoft.SecurityInsights
 
 ```
 Security/SIEM - SOAR/Sentinel-Deployment/
-├── azure-pipelines.yml           # Azure DevOps pipeline definition
-├── sentinel-deployment.json      # ARM template for all resources
-└── Deployment Instructions.md    # This file
+├── 01-resource-provider-Sentinel.json          # Standalone ARM template for provider registration
+├── azure-pipelines.yml                          # Azure DevOps pipeline definition
+├── sentinel-deployment.json                     # ARM template for all resources (workspace, Sentinel, connectors, UEBA, IAM)
+├── Deployment Instructions.md                   # This file
+└── README - Resource Provider Registration.md   # Guide for standalone provider registration and verification
 ```
 
 ---

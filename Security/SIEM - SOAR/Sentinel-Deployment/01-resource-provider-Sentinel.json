@@ -1,0 +1,92 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "description": "Checks and registers the required Azure resource providers for Microsoft Sentinel on the target subscription. Deploy this template to any resource group before running sentinel-deployment.json. Uses a deploymentScript resource to execute Azure CLI commands that register Microsoft.OperationalInsights, Microsoft.OperationsManagement, and Microsoft.SecurityInsights."
+  },
+  "parameters": {
+    "location": {
+      "type": "string",
+      "defaultValue": "[resourceGroup().location]",
+      "metadata": {
+        "description": "Azure region for the deployment script container instance."
+      }
+    },
+    "enableOperationalInsights": {
+      "type": "bool",
+      "defaultValue": true,
+      "metadata": {
+        "description": "Register Microsoft.OperationalInsights (required for Log Analytics workspaces)."
+      }
+    },
+    "enableOperationsManagement": {
+      "type": "bool",
+      "defaultValue": true,
+      "metadata": {
+        "description": "Register Microsoft.OperationsManagement (required for the SecurityInsights solution)."
+      }
+    },
+    "enableSecurityInsights": {
+      "type": "bool",
+      "defaultValue": true,
+      "metadata": {
+        "description": "Register Microsoft.SecurityInsights (required for Microsoft Sentinel)."
+      }
+    },
+    "identityType": {
+      "type": "string",
+      "defaultValue": "UserAssigned",
+      "allowedValues": [
+        "UserAssigned"
+      ],
+      "metadata": {
+        "description": "Identity type for the deployment script. Must be a User-Assigned Managed Identity with Contributor rights on the subscription."
+      }
+    },
+    "userAssignedIdentityResourceId": {
+      "type": "string",
+      "metadata": {
+        "description": "Full resource ID of the User-Assigned Managed Identity that the deployment script will run as. This identity must have Contributor role on the subscription to register resource providers."
+      }
+    }
+  },
+  "variables": {
+    "scriptName": "registerSentinelProviders",
+    "providerList": "[concat(if(parameters('enableOperationalInsights'), 'Microsoft.OperationalInsights ', ''), if(parameters('enableOperationsManagement'), 'Microsoft.OperationsManagement ', ''), if(parameters('enableSecurityInsights'), 'Microsoft.SecurityInsights ', ''))]"
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Resources/deploymentScripts",
+      "apiVersion": "2023-08-01",
+      "name": "[variables('scriptName')]",
+      "location": "[parameters('location')]",
+      "kind": "AzureCLI",
+      "identity": {
+        "type": "[parameters('identityType')]",
+        "userAssignedIdentities": {
+          "[parameters('userAssignedIdentityResourceId')]": {}
+        }
+      },
+      "properties": {
+        "azCliVersion": "2.63.0",
+        "retentionInterval": "PT1H",
+        "timeout": "PT30M",
+        "cleanupPreference": "OnSuccess",
+        "scriptContent": "[concat('#!/bin/bash\nset -e\n\nPROVIDERS=(', variables('providerList'), ')\nRESULTS=\"{}\"\nALL_REGISTERED=true\n\necho \"=============================================\"\necho \"Sentinel Resource Provider Registration\"\necho \"=============================================\"\necho \"Subscription: $(az account show --query name --output tsv)\"\necho \"Subscription ID: $(az account show --query id --output tsv)\"\necho \"=============================================\"\necho \"\"\n\nfor PROVIDER in \"${PROVIDERS[@]}\"; do\n  if [ -z \"$PROVIDER\" ]; then continue; fi\n  echo \"--- Checking $PROVIDER ---\"\n  STATE=$(az provider show --namespace \"$PROVIDER\" --query \"registrationState\" --output tsv 2>/dev/null || echo \"NotRegistered\")\n  echo \"Current state: $STATE\"\n  \n  if [ \"$STATE\" == \"Registered\" ]; then\n    echo \"PASS: $PROVIDER is already registered\"\n    RESULTS=$(echo $RESULTS | jq --arg p \"$PROVIDER\" --arg s \"AlreadyRegistered\" \\'. + {($p): $s}\\')\n  else\n    echo \"Registering $PROVIDER...\"\n    az provider register --namespace \"$PROVIDER\" --wait\n    \n    TIMEOUT=300\n    ELAPSED=0\n    while [ $ELAPSED -lt $TIMEOUT ]; do\n      STATE=$(az provider show --namespace \"$PROVIDER\" --query \"registrationState\" --output tsv)\n      if [ \"$STATE\" == \"Registered\" ]; then\n        echo \"PASS: $PROVIDER registered successfully\"\n        RESULTS=$(echo $RESULTS | jq --arg p \"$PROVIDER\" --arg s \"NewlyRegistered\" \\'. + {($p): $s}\\')\n        break\n      fi\n      echo \"Waiting... ($ELAPSED seconds elapsed, state: $STATE)\"\n      sleep 10\n      ELAPSED=$((ELAPSED + 10))\n    done\n    \n    if [ \"$STATE\" != \"Registered\" ]; then\n      echo \"WARN: $PROVIDER did not register within ${TIMEOUT}s (state: $STATE)\"\n      RESULTS=$(echo $RESULTS | jq --arg p \"$PROVIDER\" --arg s \"$STATE\" \\'. + {($p): $s}\\')\n      ALL_REGISTERED=false\n    fi\n  fi\n  echo \"\"\ndone\n\necho \"=============================================\"\necho \"Registration Summary\"\necho \"=============================================\"\necho $RESULTS | jq .\n\necho $RESULTS | jq -c . > $AZ_SCRIPTS_OUTPUT_DIRECTORY/result.json\n\nif [ \"$ALL_REGISTERED\" == \"false\" ]; then\n  echo \"ERROR: One or more providers failed to register.\"\n  exit 1\nfi\n\necho \"\"\necho \"All required resource providers are registered.\"\n')]"
+      }
+    }
+  ],
+  "outputs": {
+    "registrationResults": {
+      "type": "string",
+      "value": "[reference(variables('scriptName')).outputs.result]"
+    },
+    "providerStatus": {
+      "type": "object",
+      "value": {
+        "scriptName": "[variables('scriptName')]",
+        "provisioningState": "[reference(variables('scriptName')).provisioningState]"
+      }
+    }
+  }
+}
