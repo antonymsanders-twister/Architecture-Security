@@ -9,7 +9,17 @@
 
 Before Microsoft Sentinel can be deployed, three Azure resource providers must be registered on the target subscription. This template automates the check-and-register process using an Azure `deploymentScript` resource that runs Azure CLI commands inside a container instance.
 
-The script runs under the identity of the **user or service principal that submits the deployment** — no separate Managed Identity is required. If you deploy the template from the Azure CLI, it runs as your logged-in Azure account. If deployed via an Azure DevOps pipeline, it runs as the pipeline's service connection identity.
+The script runs under the identity of the **user or service principal that submits the deployment** — no separate Managed Identity is required. It works from any deployment method:
+
+| Deployment Method | Identity Used |
+|---|---|
+| **Azure Portal** (Custom deployment) | Your Portal login (Entra ID user account) |
+| **Azure Cloud Shell** (Bash or PowerShell) | Your Cloud Shell session identity |
+| **Local Azure CLI** | Your `az login` account |
+| **Azure DevOps Pipeline** | The pipeline's service connection identity |
+| **GitHub Actions** | The workflow's Azure credentials |
+
+Behind the scenes, the `deploymentScript` resource spins up a short-lived Azure Container Instance that executes the Azure CLI commands. The container inherits the credentials of whoever submitted the deployment — you do not need to create or manage a separate Managed Identity.
 
 ### Providers Registered
 
@@ -30,28 +40,67 @@ The script runs under the identity of the **user or service principal that submi
 | **Resource Group** | Any existing resource group to host the deployment script resource (the script itself operates at subscription level) |
 
 > **No Managed Identity needed.** The deployment script runs as the user or service principal that submits the deployment (API version `2023-08-01`). The deploying identity just needs `Contributor` on the subscription.
+>
+> **No local tooling needed.** You can deploy this template entirely from within the Azure Portal using Custom Deployment or Cloud Shell — no local Azure CLI installation required.
 
 ---
 
 ## Deployment Options
 
-### Option A: Deploy via Azure CLI (Recommended for Manual Use)
+### Option A: Deploy via Azure Portal — Custom Deployment
 
-If you just need to register the providers without the ARM template, run these commands directly:
+The easiest way to run this template if you are not using a pipeline.
+
+1. In the Azure Portal, search for **Deploy a custom template** (or go to **Create a resource > Template deployment**)
+2. Click **Build your own template in the editor**
+3. Paste the full contents of `01-resource-provider-Sentinel.json` into the editor and click **Save**
+4. Select your **Subscription** and an existing **Resource Group** (any RG works — the script operates at subscription level)
+5. Optionally toggle which providers to register (all three are enabled by default)
+6. Click **Review + Create**, then **Create**
+
+The deployment creates a short-lived container instance that runs the registration script. You can monitor progress under **Deployments** in the resource group. The script runs as your Portal login account.
+
+> **Tip:** After the deployment completes, you can verify the results by navigating to **Subscriptions > [your subscription] > Resource providers** and searching for each provider name.
+
+### Option B: Deploy via Azure Cloud Shell
+
+Azure Cloud Shell (Bash or PowerShell) is built into the Portal and has the Azure CLI pre-installed. Your Cloud Shell session is already authenticated as your Entra ID account.
+
+**Using the ARM template:**
 
 ```bash
-# Register all three providers
+# Upload the template file to Cloud Shell (or clone the repo), then deploy
+az deployment group create \
+  --resource-group "rg-sentinel-prod" \
+  --template-file "01-resource-provider-Sentinel.json"
+```
+
+**Or register providers directly without the template:**
+
+```bash
+# Quick method — register all three providers in Cloud Shell
 az provider register --namespace Microsoft.OperationalInsights
 az provider register --namespace Microsoft.OperationsManagement
 az provider register --namespace Microsoft.SecurityInsights
+
+# Check status
+for NS in Microsoft.OperationalInsights Microsoft.OperationsManagement Microsoft.SecurityInsights; do
+  echo -n "$NS: "
+  az provider show --namespace "$NS" --query "registrationState" --output tsv
+done
 ```
 
-### Option B: Deploy the ARM Template
+> **Cloud Shell tip:** To upload the JSON file, click the **Upload/Download files** button in the Cloud Shell toolbar, or use `git clone` to pull the repository directly.
 
-The template runs as your currently logged-in Azure CLI identity — no extra parameters needed for authentication:
+### Option C: Deploy via Local Azure CLI
+
+If you have the Azure CLI installed locally, ensure you are logged in and deploy the template:
 
 ```bash
-# Deploy the template to a resource group (runs as the logged-in user)
+# Ensure you are logged in
+az login
+
+# Deploy the template (runs as your logged-in identity)
 az deployment group create \
   --resource-group "rg-sentinel-prod" \
   --template-file "01-resource-provider-Sentinel.json"
@@ -70,16 +119,25 @@ az deployment group create \
     enableSecurityInsights=true
 ```
 
-### Option C: Deploy via Azure Portal
+### Option D: Register Providers Directly (No Template)
 
-1. Go to **Deploy a custom template** in the Azure Portal
-2. Click **Build your own template in the editor**
-3. Paste the contents of `01-resource-provider-Sentinel.json`
-4. Select the target subscription and resource group
-5. Optionally toggle which providers to register
-6. Click **Review + Create**
+If you prefer not to use the ARM template at all, register providers with simple CLI commands from any environment (Portal Cloud Shell, local CLI, or PowerShell):
 
-The script will run under your Portal login identity.
+**Azure CLI (Bash):**
+
+```bash
+az provider register --namespace Microsoft.OperationalInsights
+az provider register --namespace Microsoft.OperationsManagement
+az provider register --namespace Microsoft.SecurityInsights
+```
+
+**Azure PowerShell:**
+
+```powershell
+Register-AzResourceProvider -ProviderNamespace Microsoft.OperationalInsights
+Register-AzResourceProvider -ProviderNamespace Microsoft.OperationsManagement
+Register-AzResourceProvider -ProviderNamespace Microsoft.SecurityInsights
+```
 
 ---
 
