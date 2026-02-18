@@ -81,7 +81,7 @@
       }
     },
     "contactEmails": {
-      "type": "array",
+      "type": "string",
       "metadata": {
         "description": "Array of email addresses to receive budget alert notifications. At least one email is required. Example: [\"admin@contoso.com\", \"finance@contoso.com\"]"
       }
