@@ -9,17 +9,7 @@
 
 Before Microsoft Sentinel can be deployed, three Azure resource providers must be registered on the target subscription. This template automates the check-and-register process using an Azure `deploymentScript` resource that runs Azure CLI commands inside a container instance.
 
-The script runs under the identity of the **user or service principal that submits the deployment** — no separate Managed Identity is required. It works from any deployment method:
-
-| Deployment Method | Identity Used |
-|---|---|
-| **Azure Portal** (Custom deployment) | Your Portal login (Entra ID user account) |
-| **Azure Cloud Shell** (Bash or PowerShell) | Your Cloud Shell session identity |
-| **Local Azure CLI** | Your `az login` account |
-| **Azure DevOps Pipeline** | The pipeline's service connection identity |
-| **GitHub Actions** | The workflow's Azure credentials |
-
-Behind the scenes, the `deploymentScript` resource spins up a short-lived Azure Container Instance that executes the Azure CLI commands. The container inherits the credentials of whoever submitted the deployment — you do not need to create or manage a separate Managed Identity.
+The template requires a **User-Assigned Managed Identity** with `Contributor` access on the subscription. This is a one-time setup — the same identity can be reused for future deployments and deleted when no longer needed.
 
 ### Providers Registered
 
@@ -36,12 +26,74 @@ Behind the scenes, the `deploymentScript` resource spins up a short-lived Azure 
 | Requirement | Details |
 |---|---|
 | **Azure Subscription** | Active subscription where you want to deploy Sentinel |
-| **Permissions** | `Contributor` role on the subscription (required to register resource providers) — the deploying user or service principal must have this |
-| **Resource Group** | Any existing resource group to host the deployment script resource (the script itself operates at subscription level) |
+| **Permissions** | `Owner` or `Contributor` + `User Access Administrator` on the subscription (to create the managed identity and assign it Contributor) |
+| **Resource Group** | Any existing resource group to host the managed identity and deployment script resource |
+| **User-Assigned Managed Identity** | With `Contributor` role on the subscription (see one-time setup below) |
 
-> **No Managed Identity needed.** The deployment script runs as the user or service principal that submits the deployment (API version `2023-08-01`). The deploying identity just needs `Contributor` on the subscription.
->
-> **No local tooling needed.** You can deploy this template entirely from within the Azure Portal using Custom Deployment or Cloud Shell — no local Azure CLI installation required.
+---
+
+## One-Time Setup: Create the Managed Identity
+
+The `deploymentScript` resource requires a User-Assigned Managed Identity to run. You only need to create this once — it can be reused for all future provider registration deployments.
+
+### Setup via Azure Portal
+
+1. In the Azure Portal, search for **Managed Identities** and click **Create**
+2. Select your **Subscription** and **Resource Group** (use the same RG you will deploy the template to)
+3. Set the **Name** to `id-sentinel-provider-registration` (or any name you prefer)
+4. Select a **Region** and click **Review + Create**, then **Create**
+5. After creation, copy the **Resource ID** from the identity's **Properties** page (you will need it for the template parameter)
+6. Navigate to **Subscriptions** > select your subscription > **Access control (IAM)** > **Add role assignment**
+7. Select the **Contributor** role, assign it to **Managed Identity**, select the identity you just created, and click **Save**
+
+### Setup via Azure CLI
+
+```bash
+# Set variables
+RG_NAME="rg-sentinel-prod"
+MI_NAME="id-sentinel-provider-registration"
+LOCATION="uksouth"
+
+# Create the managed identity
+az identity create \
+  --resource-group "$RG_NAME" \
+  --name "$MI_NAME" \
+  --location "$LOCATION"
+
+# Get the principal ID and resource ID
+MI_PRINCIPAL_ID=$(az identity show --resource-group "$RG_NAME" --name "$MI_NAME" --query principalId --output tsv)
+MI_RESOURCE_ID=$(az identity show --resource-group "$RG_NAME" --name "$MI_NAME" --query id --output tsv)
+
+# Assign Contributor role on the subscription
+az role assignment create \
+  --assignee-object-id "$MI_PRINCIPAL_ID" \
+  --assignee-principal-type ServicePrincipal \
+  --role "Contributor" \
+  --scope "/subscriptions/$(az account show --query id --output tsv)"
+
+# Display the resource ID (you will need this for the template parameter)
+echo "Managed Identity Resource ID: $MI_RESOURCE_ID"
+```
+
+### Setup via Azure PowerShell
+
+```powershell
+# Set variables
+$RgName = "rg-sentinel-prod"
+$MiName = "id-sentinel-provider-registration"
+$Location = "uksouth"
+
+# Create the managed identity
+$mi = New-AzUserAssignedIdentity -ResourceGroupName $RgName -Name $MiName -Location $Location
+
+# Assign Contributor role on the subscription
+New-AzRoleAssignment -ObjectId $mi.PrincipalId -RoleDefinitionName "Contributor" -Scope "/subscriptions/$((Get-AzContext).Subscription.Id)"
+
+# Display the resource ID
+Write-Host "Managed Identity Resource ID: $($mi.Id)"
+```
+
+> **Note:** After creating the managed identity, wait **1-2 minutes** for the role assignment to propagate before deploying the template.
 
 ---
 
@@ -54,11 +106,12 @@ The easiest way to run this template if you are not using a pipeline.
 1. In the Azure Portal, search for **Deploy a custom template** (or go to **Create a resource > Template deployment**)
 2. Click **Build your own template in the editor**
 3. Paste the full contents of `01-resource-provider-Sentinel.json` into the editor and click **Save**
-4. Select your **Subscription** and an existing **Resource Group** (any RG works — the script operates at subscription level)
-5. Optionally toggle which providers to register (all three are enabled by default)
-6. Click **Review + Create**, then **Create**
+4. Select your **Subscription** and an existing **Resource Group**
+5. In the **Managed Identity Resource Id** field, paste the full resource ID of your managed identity (e.g., `/subscriptions/{sub-id}/resourceGroups/{rg}/providers/Microsoft.ManagedIdentity/userAssignedIdentities/id-sentinel-provider-registration`)
+6. Optionally toggle which providers to register (all three are enabled by default)
+7. Click **Review + Create**, then **Create**
 
-The deployment creates a short-lived container instance that runs the registration script. You can monitor progress under **Deployments** in the resource group. The script runs as your Portal login account.
+The deployment creates a short-lived container instance that runs the registration script. You can monitor progress under **Deployments** in the resource group.
 
 > **Tip:** After the deployment completes, you can verify the results by navigating to **Subscriptions > [your subscription] > Resource providers** and searching for each provider name.
 
@@ -69,16 +122,23 @@ Azure Cloud Shell (Bash or PowerShell) is built into the Portal and has the Azur
 **Using the ARM template:**
 
 ```bash
+# Get the managed identity resource ID
+MI_RESOURCE_ID=$(az identity show \
+  --resource-group "rg-sentinel-prod" \
+  --name "id-sentinel-provider-registration" \
+  --query id --output tsv)
+
 # Upload the template file to Cloud Shell (or clone the repo), then deploy
 az deployment group create \
   --resource-group "rg-sentinel-prod" \
-  --template-file "01-resource-provider-Sentinel.json"
+  --template-file "01-resource-provider-Sentinel.json" \
+  --parameters managedIdentityResourceId="$MI_RESOURCE_ID"
 ```
 
 **Or register providers directly without the template:**
 
 ```bash
-# Quick method — register all three providers in Cloud Shell
+# Quick method — register all three providers in Cloud Shell (no template or MI needed)
 az provider register --namespace Microsoft.OperationalInsights
 az provider register --namespace Microsoft.OperationsManagement
 az provider register --namespace Microsoft.SecurityInsights
@@ -100,10 +160,17 @@ If you have the Azure CLI installed locally, ensure you are logged in and deploy
 # Ensure you are logged in
 az login
 
-# Deploy the template (runs as your logged-in identity)
+# Get the managed identity resource ID
+MI_RESOURCE_ID=$(az identity show \
+  --resource-group "rg-sentinel-prod" \
+  --name "id-sentinel-provider-registration" \
+  --query id --output tsv)
+
+# Deploy the template
 az deployment group create \
   --resource-group "rg-sentinel-prod" \
-  --template-file "01-resource-provider-Sentinel.json"
+  --template-file "01-resource-provider-Sentinel.json" \
+  --parameters managedIdentityResourceId="$MI_RESOURCE_ID"
 ```
 
 To selectively skip a provider, pass the toggle parameters:
@@ -114,6 +181,7 @@ az deployment group create \
   --resource-group "rg-sentinel-prod" \
   --template-file "01-resource-provider-Sentinel.json" \
   --parameters \
+    managedIdentityResourceId="$MI_RESOURCE_ID" \
     enableOperationalInsights=false \
     enableOperationsManagement=false \
     enableSecurityInsights=true
@@ -121,7 +189,7 @@ az deployment group create \
 
 ### Option D: Register Providers Directly (No Template)
 
-If you prefer not to use the ARM template at all, register providers with simple CLI commands from any environment (Portal Cloud Shell, local CLI, or PowerShell):
+If you prefer not to use the ARM template at all, register providers with simple CLI commands from any environment (Portal Cloud Shell, local CLI, or PowerShell). This method does **not** require a managed identity — your own user credentials are used directly.
 
 **Azure CLI (Bash):**
 
@@ -240,15 +308,40 @@ During the process, providers pass through these states:
 
 ---
 
+## Cleanup (Optional)
+
+After the resource providers are registered, the managed identity is no longer needed. You can safely delete it:
+
+**Azure CLI:**
+
+```bash
+# Delete the managed identity
+az identity delete --resource-group "rg-sentinel-prod" --name "id-sentinel-provider-registration"
+```
+
+**Azure Portal:**
+
+1. Navigate to **Managed Identities**
+2. Select `id-sentinel-provider-registration`
+3. Click **Delete**
+
+> Deleting the managed identity does not affect the registered resource providers. Registration is permanent until explicitly unregistered.
+
+---
+
 ## Troubleshooting
 
 | Issue | Cause | Resolution |
 |---|---|---|
+| **Validation failed** when deploying template | Missing or invalid managed identity resource ID | Ensure the `managedIdentityResourceId` parameter contains the full resource ID (starts with `/subscriptions/...`) |
+| **Validation failed** — identity not found | Managed identity does not exist or is in a different subscription | Verify the MI exists: `az identity show --resource-group <RG> --name <MI_NAME>` |
 | Provider stuck in `Registering` | Azure backend processing delay | Wait up to 15 minutes; if still stuck, run `az provider register --namespace <PROVIDER>` again |
-| `AuthorizationFailed` on register | Insufficient permissions | Ensure the deploying user or service principal has `Contributor` role on the subscription |
+| `AuthorizationFailed` on register | Managed identity lacks sufficient permissions | Ensure the MI has `Contributor` role on the subscription |
+| `AuthorizationFailed` creating MI or role assignment | Deploying user lacks permissions | The user deploying the template needs `Owner` or `Contributor` + `User Access Administrator` to create the MI setup |
 | Provider shows `NotRegistered` after register command | Command didn't complete | Use `az provider register --namespace <PROVIDER> --wait` to block until complete |
-| `DeploymentScriptError` in template | Container instance failed to start | Check the deployment script logs in the resource group; ensure the deploying identity has permission to create container instances |
+| `DeploymentScriptError` in template | Container instance failed to start | Check the deployment script logs in the resource group; ensure the managed identity has permission to create container instances |
 | Provider registered but Sentinel deployment still fails | Propagation delay | Wait 2-3 minutes after registration before deploying Sentinel resources |
+| Role assignment propagation delay | MI was just created | Wait 1-2 minutes after creating the role assignment before deploying the template |
 
 ### Force Re-Registration
 
