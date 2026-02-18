@@ -16,10 +16,11 @@
 5. [Variable Reference](#5-variable-reference)
 6. [Setup Instructions](#6-setup-instructions)
 7. [Pipeline Stages Explained](#7-pipeline-stages-explained)
-8. [Customisation Guide](#8-customisation-guide)
-9. [Post-Deployment Steps](#9-post-deployment-steps)
-10. [Troubleshooting](#10-troubleshooting)
-11. [Cost Considerations](#11-cost-considerations)
+8. [IAM — Roles and Permissions](#8-iam--roles-and-permissions)
+9. [Customisation Guide](#9-customisation-guide)
+10. [Post-Deployment Steps](#10-post-deployment-steps)
+11. [Troubleshooting](#11-troubleshooting)
+12. [Cost Considerations](#12-cost-considerations)
 
 ---
 
@@ -40,12 +41,14 @@ This pipeline automates the deployment of a Microsoft Sentinel SIEM instance on 
 
 | Resource | Details |
 |---|---|
+| **Resource Providers** | Automatically registers `Microsoft.OperationalInsights`, `Microsoft.OperationsManagement`, and `Microsoft.SecurityInsights` on the subscription |
 | **Resource Group** | Created if it does not exist |
 | **Log Analytics Workspace** | Pay-As-You-Go (PerGB2018) pricing tier |
 | **Microsoft Sentinel** | Enabled on the workspace via SecurityInsights solution |
 | **Daily Ingestion Cap** | 5 MB/day (0.005 GB) — configurable via `dailyQuotaGb` |
 | **Table Retention** | 90 days default — configurable via `retentionInDays` |
 | **UEBA** | Enabled with AuditLogs, AzureActivity, SecurityEvent, SigninLogs sources |
+| **IAM Role Assignments** | Assigns Microsoft Sentinel and Log Analytics RBAC roles to specified Entra ID groups or users at the resource group level |
 
 ### Free Data Connectors Enabled
 
@@ -68,7 +71,7 @@ This pipeline automates the deployment of a Microsoft Sentinel SIEM instance on 
 | **Azure Permissions** | Contributor + Microsoft Sentinel Contributor on the subscription or resource group |
 | **Microsoft Entra ID** | P1 or P2 licence required for Sign-In and Audit Log connectors |
 | **Microsoft 365 Defender** | Active M365 Defender licence for the Defender connector |
-| **Resource Providers** | `Microsoft.OperationalInsights`, `Microsoft.OperationsManagement`, `Microsoft.SecurityInsights` must be registered |
+| **Resource Providers** | `Microsoft.OperationalInsights`, `Microsoft.OperationsManagement`, `Microsoft.SecurityInsights` must be registered (the pipeline handles this automatically — see below) |
 
 ### Azure DevOps Requirements
 
@@ -79,9 +82,19 @@ This pipeline automates the deployment of a Microsoft Sentinel SIEM instance on 
 | **Self-Hosted Agent** (for MI) | If using Managed Identity, the agent VM must have the identity assigned with the required roles |
 | **Pipeline Environment** | Create an environment called `sentinel-production` in Azure DevOps (Pipelines > Environments) |
 
-### Register Required Resource Providers
+### Resource Provider Registration (Automatic)
 
-If not already registered, run the following in Azure CLI or Cloud Shell:
+The pipeline automatically checks and registers the following resource providers on the target subscription before each deployment:
+
+- `Microsoft.OperationalInsights`
+- `Microsoft.OperationsManagement`
+- `Microsoft.SecurityInsights`
+
+The registration step runs in both the **Validate** and **Deploy** stages. It checks the current registration state of each provider, registers any that are missing, and waits for registration to complete before proceeding.
+
+> **Note:** The service principal or Managed Identity used by the pipeline must have permission to register resource providers on the subscription (the `Contributor` role includes this permission).
+
+If you prefer to register providers manually (e.g. in a locked-down subscription), run the following in Azure CLI or Cloud Shell:
 
 ```bash
 az provider register --namespace Microsoft.OperationalInsights
@@ -138,6 +151,18 @@ All configurable settings are defined in the `variables` block of `azure-pipelin
 |---|---|---|
 | `enableUEBA` | `true` | Enable User and Entity Behavior Analytics |
 
+### IAM Role Assignment Variables
+
+| Variable | Default | Description |
+|---|---|---|
+| `sentinelReaderPrincipalIds` | `[]` | Entra ID object IDs for Microsoft Sentinel Reader role |
+| `sentinelResponderPrincipalIds` | `[]` | Entra ID object IDs for Microsoft Sentinel Responder role |
+| `sentinelContributorPrincipalIds` | `[]` | Entra ID object IDs for Microsoft Sentinel Contributor role |
+| `sentinelPlaybookOperatorPrincipalIds` | `[]` | Entra ID object IDs for Microsoft Sentinel Playbook Operator role |
+| `logAnalyticsReaderPrincipalIds` | `[]` | Entra ID object IDs for Log Analytics Reader role |
+| `logAnalyticsContributorPrincipalIds` | `[]` | Entra ID object IDs for Log Analytics Contributor role |
+| `iamPrincipalType` | `Group` | Type of principal: `Group`, `User`, or `ServicePrincipal` |
+
 ### Tag Variables
 
 | Variable | Default | Description |
@@ -155,9 +180,10 @@ All configurable settings are defined in the `variables` block of `azure-pipelin
 Since you are using **Managed Identity** authentication:
 
 1. Ensure your self-hosted Azure DevOps agent VM has a **System-Assigned** or **User-Assigned Managed Identity**
-2. Assign the following roles to the Managed Identity on the target subscription:
-   - `Contributor` (for resource deployment)
+2. Assign the following roles to the Managed Identity on the target subscription or resource group:
+   - `Contributor` (for resource deployment and provider registration)
    - `Microsoft Sentinel Contributor` (for Sentinel configuration)
+   - `User Access Administrator` (required if using IAM role assignment features — allows the pipeline to assign roles to groups/users)
 3. In Azure DevOps, go to **Project Settings > Service connections**
 4. Create a new **Azure Resource Manager** service connection using **Managed Identity**
 5. Note the service connection name — this replaces `YOUR_SUBSCRIPTION_ID` in the pipeline
@@ -206,6 +232,7 @@ variables:
 
 | Step | Action |
 |---|---|
+| Register Resource Providers | Checks and registers `Microsoft.OperationalInsights`, `Microsoft.OperationsManagement`, and `Microsoft.SecurityInsights` on the subscription if not already registered |
 | Create Resource Group | Creates the RG if it doesn't exist (idempotent) |
 | Validate ARM Template | Runs `az deployment group validate` to check for syntax and parameter errors |
 | What-If Analysis | Shows a preview of what resources will be created, modified, or deleted |
@@ -216,6 +243,7 @@ The validate stage runs on **all branches and PRs** so you can review changes be
 
 | Step | Action |
 |---|---|
+| Register Resource Providers | Ensures all required providers are registered before deployment |
 | Create Resource Group | Ensures RG exists (idempotent) |
 | Deploy ARM Template | Runs `az deployment group create` with all parameters |
 | Verify Outputs | Displays the deployment outputs (workspace ID, customer ID, retention, daily cap) |
@@ -228,10 +256,162 @@ The deploy stage only runs on the `main` branch (`refs/heads/main`) and uses a *
 |---|---|
 | Verify Sentinel | Confirms the SecurityInsights solution is installed |
 | Verify Workspace | Checks retention and daily cap match expected values |
+| Verify IAM | Lists all Sentinel and Log Analytics role assignments on the resource group |
 
 ---
 
-## 8. Customisation Guide
+## 8. IAM — Roles and Permissions
+
+This deployment supports automated RBAC role assignments aligned with Microsoft's recommended role model for Sentinel and Log Analytics. Roles are assigned at the **resource group** level, which is Microsoft's recommended scope for Sentinel deployments.
+
+> **References:**
+> - [Roles and permissions in Microsoft Sentinel](https://learn.microsoft.com/en-us/azure/sentinel/roles)
+> - [Prerequisites for deploying Microsoft Sentinel](https://learn.microsoft.com/en-us/azure/sentinel/prerequisites)
+
+### 8.1 Microsoft's Recommended Role Model
+
+Microsoft recommends using the principle of least privilege. Assign the most restrictive role that still allows users to complete their tasks. The following table summarises the built-in roles and their intended audiences:
+
+| Role | Intended For | Permissions |
+|---|---|---|
+| **Microsoft Sentinel Reader** | Executives, compliance officers, read-only stakeholders | View data, incidents, workbooks, and recommendations |
+| **Microsoft Sentinel Responder** | SOC analysts (Tier 1/2) | All Reader permissions + manage incidents (triage, assign, dismiss) |
+| **Microsoft Sentinel Contributor** | Security engineers, Tier 3 analysts | All Responder permissions + create/edit analytics rules, workbooks, manage content hub |
+| **Microsoft Sentinel Playbook Operator** | SOC analysts who need to run playbooks | List, view, and manually run playbooks |
+| **Log Analytics Reader** | Auditors, reporting users | Read-only access to Log Analytics workspace data and settings |
+| **Log Analytics Contributor** | Workspace administrators, data engineers | Read/write access to Log Analytics workspace data, settings, and connected sources |
+
+#### Additional Roles for Specific Tasks
+
+| Task | Required Roles |
+|---|---|
+| Connect data sources | **Write** permission on the workspace (e.g. Contributor); check connector docs for extra permissions |
+| Create/edit playbooks | **Logic App Contributor** on the playbook resource group |
+| Allow Sentinel to run playbooks via automation rules | **Owner** role on the playbook resource group (to grant the Sentinel service account access) |
+| Guest users assigning incidents | **Directory Reader** (Entra ID role) + **Microsoft Sentinel Responder** |
+| Create/delete workbooks | **Microsoft Sentinel Contributor** or lesser Sentinel role + **Workbook Contributor** |
+
+### 8.2 How Role Assignments Work in This Deployment
+
+The ARM template creates `Microsoft.Authorization/roleAssignments` resources for each principal ID you provide. Assignments are:
+
+- **Scoped to the resource group** — covers the workspace, Sentinel solution, and all related resources
+- **Idempotent** — safe to run multiple times; existing assignments are not duplicated
+- **Conditional** — if a principal ID array is empty (`[]`), no role assignments are created for that role
+- **Deterministic** — role assignment names are generated using `guid()` based on the resource group, principal ID, and role name, ensuring consistency across deployments
+
+### 8.3 Configuring IAM Role Assignments
+
+#### Step 1: Create Entra ID Security Groups (Recommended)
+
+Microsoft recommends assigning roles to **security groups** rather than individual users. Create groups in Entra ID (Azure AD) for each role:
+
+| Entra ID Group Name (example) | Sentinel Role |
+|---|---|
+| `SG-Sentinel-Readers` | Microsoft Sentinel Reader |
+| `SG-Sentinel-Responders` | Microsoft Sentinel Responder |
+| `SG-Sentinel-Contributors` | Microsoft Sentinel Contributor |
+| `SG-Sentinel-PlaybookOperators` | Microsoft Sentinel Playbook Operator |
+| `SG-LogAnalytics-Readers` | Log Analytics Reader |
+| `SG-LogAnalytics-Contributors` | Log Analytics Contributor |
+
+To get the object ID for a group:
+
+```bash
+az ad group show --group "SG-Sentinel-Responders" --query id --output tsv
+```
+
+To get the object ID for an individual user:
+
+```bash
+az ad user show --id "user@contoso.com" --query id --output tsv
+```
+
+#### Step 2: Update Pipeline Variables
+
+Edit the IAM variables in `azure-pipelines.yml` with the Entra ID object IDs as JSON arrays:
+
+```yaml
+# --- IAM Role Assignments ---
+sentinelReaderPrincipalIds: '["aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"]'
+sentinelResponderPrincipalIds: '["11111111-2222-3333-4444-555555555555"]'
+sentinelContributorPrincipalIds: '["66666666-7777-8888-9999-000000000000"]'
+sentinelPlaybookOperatorPrincipalIds: '["11111111-2222-3333-4444-555555555555"]'
+logAnalyticsReaderPrincipalIds: '[]'
+logAnalyticsContributorPrincipalIds: '[]'
+iamPrincipalType: 'Group'
+```
+
+**Multiple principals per role** — pass multiple object IDs in the array:
+
+```yaml
+sentinelResponderPrincipalIds: '["group-id-1", "group-id-2", "group-id-3"]'
+```
+
+**Individual users** — if assigning to users instead of groups, change the principal type:
+
+```yaml
+iamPrincipalType: 'User'
+sentinelResponderPrincipalIds: '["user-object-id-1", "user-object-id-2"]'
+```
+
+#### Step 3: Deploy and Verify
+
+After the pipeline runs, the **Verify** stage will list all Sentinel and Log Analytics role assignments on the resource group. You can also verify manually:
+
+```bash
+# List all Sentinel and Log Analytics role assignments
+az role assignment list \
+  --resource-group rg-sentinel-prod \
+  --query "[?contains(roleDefinitionName, 'Sentinel') || contains(roleDefinitionName, 'Log Analytics')].{Principal:principalName, Role:roleDefinitionName, PrincipalType:principalType}" \
+  --output table
+```
+
+### 8.4 Role Assignment Examples by Organisation Size
+
+#### Small Team (1-5 people, all roles)
+
+```yaml
+sentinelContributorPrincipalIds: '["security-team-group-id"]'
+logAnalyticsContributorPrincipalIds: '["security-team-group-id"]'
+iamPrincipalType: 'Group'
+```
+
+#### Medium SOC (separate analyst and engineering roles)
+
+```yaml
+sentinelResponderPrincipalIds: '["soc-analysts-group-id"]'
+sentinelContributorPrincipalIds: '["security-engineers-group-id"]'
+sentinelPlaybookOperatorPrincipalIds: '["soc-analysts-group-id"]'
+sentinelReaderPrincipalIds: '["management-group-id", "compliance-group-id"]'
+logAnalyticsReaderPrincipalIds: '["compliance-group-id"]'
+logAnalyticsContributorPrincipalIds: '["security-engineers-group-id"]'
+iamPrincipalType: 'Group'
+```
+
+#### Enterprise (tiered SOC with strict separation)
+
+```yaml
+sentinelReaderPrincipalIds: '["executives-group-id", "compliance-group-id", "it-ops-group-id"]'
+sentinelResponderPrincipalIds: '["soc-tier1-group-id", "soc-tier2-group-id"]'
+sentinelContributorPrincipalIds: '["soc-tier3-group-id", "security-engineers-group-id"]'
+sentinelPlaybookOperatorPrincipalIds: '["soc-tier1-group-id", "soc-tier2-group-id"]'
+logAnalyticsReaderPrincipalIds: '["compliance-group-id", "audit-group-id"]'
+logAnalyticsContributorPrincipalIds: '["security-engineers-group-id"]'
+iamPrincipalType: 'Group'
+```
+
+### 8.5 Important Notes on IAM
+
+- **Roles are cumulative** — a user with both Sentinel Reader and Contributor will have the combined permissions of both roles. Avoid assigning overlapping roles unless intentional.
+- **Scope matters** — this deployment assigns roles at the resource group level. For more granular control (e.g. table-level RBAC or resource-context RBAC), configure additional permissions in the Azure Portal. See [resource-context RBAC](https://learn.microsoft.com/en-us/azure/sentinel/resource-context-rbac).
+- **Pipeline service principal** — the Managed Identity or service principal running the pipeline needs `Owner` or `User Access Administrator` on the resource group to create role assignments. The `Contributor` role alone is **not sufficient** for assigning roles.
+- **Microsoft recommends a dedicated resource group** for Sentinel to simplify RBAC. All resources in the group inherit the same role assignments, reducing complexity.
+- **Sentinel is moving to the Defender portal** — after March 2027, Sentinel will only be available in the Microsoft Defender portal. Role assignments made via Azure RBAC will continue to apply. See [Microsoft's migration guidance](https://learn.microsoft.com/en-us/azure/sentinel/move-to-defender).
+
+---
+
+## 9. Customisation Guide
 
 ### Using Variable Groups (Recommended for Multiple Environments)
 
@@ -269,6 +449,25 @@ The `dailyQuotaGb` variable controls the daily data cap. Common values:
 | 10 GB/day | `10` | Larger production |
 | No cap | `-1` | Unlimited (not recommended without budget controls) |
 
+> **Important — Sizing the Daily Cap for Your Organisation:**
+>
+> The free tier of Microsoft Sentinel provides approximately **5 MB of ingestion per user per day**. When setting the `dailyQuotaGb` value, you should **multiply 5 MB by the total number of licences/seats** in your organisation to estimate your baseline free allowance.
+>
+> **Formula:** `dailyQuotaGb = (5 MB x number of licences) / 1024`
+>
+> | Licences/Seats | Free Allowance | `dailyQuotaGb` Value |
+> |---|---|---|
+> | 1 | 5 MB/day | `0.005` |
+> | 10 | 50 MB/day | `0.049` |
+> | 25 | 125 MB/day | `0.122` |
+> | 50 | 250 MB/day | `0.244` |
+> | 100 | 500 MB/day | `0.488` |
+> | 250 | 1.22 GB/day | `1.221` |
+> | 500 | 2.44 GB/day | `2.441` |
+> | 1,000 | 4.88 GB/day | `4.883` |
+>
+> For example, if your organisation has **50 Microsoft 365 licences**, your free daily allowance is approximately **250 MB/day** — set `dailyQuotaGb` to `0.244` or higher to stay within that allowance. Setting the cap below your calculated allowance means you may not be using all of your free entitlement; setting it above means you will incur Pay-As-You-Go charges for the overage.
+
 ### Changing Retention
 
 The `retentionInDays` variable controls default table retention:
@@ -305,17 +504,17 @@ To add more connectors, add new resource blocks to `sentinel-deployment.json` fo
 
 ---
 
-## 9. Post-Deployment Steps
+## 10. Post-Deployment Steps
 
 After the pipeline completes successfully, perform these manual steps in the Azure Portal:
 
-### 9.1 Verify UEBA Configuration
+### 10.1 Verify UEBA Configuration
 
 1. Navigate to **Microsoft Sentinel > Entity behavior (UEBA)**
 2. Confirm that UEBA is enabled and the configured data sources are active
 3. Verify entity pages are populating (may take 24-48 hours for initial data)
 
-### 9.2 Enable Analytics Rules
+### 10.2 Enable Analytics Rules
 
 The pipeline deploys connectors but does not enable analytics (detection) rules. To enable:
 
@@ -326,7 +525,7 @@ The pipeline deploys connectors but does not enable analytics (detection) rules.
    - Microsoft Security incident creation rules (auto-creates incidents from Defender alerts)
    - Built-in Scheduled rules for high-fidelity detections
 
-### 9.3 Configure Diagnostic Settings
+### 10.3 Configure Diagnostic Settings
 
 Route Azure Activity logs to the workspace:
 
@@ -334,7 +533,7 @@ Route Azure Activity logs to the workspace:
 2. Add a diagnostic setting to send logs to the Log Analytics workspace
 3. Select all log categories
 
-### 9.4 Set Up Automation (Optional)
+### 10.4 Set Up Automation (Optional)
 
 1. Go to **Microsoft Sentinel > Automation**
 2. Create automation rules for common actions:
@@ -342,7 +541,7 @@ Route Azure Activity logs to the workspace:
    - Auto-close known false positives
    - Run playbooks (Logic Apps) for enrichment or response
 
-### 9.5 Review Workbooks
+### 10.5 Review Workbooks
 
 1. Go to **Microsoft Sentinel > Workbooks > Templates**
 2. Save key workbooks to your workspace:
@@ -353,7 +552,7 @@ Route Azure Activity logs to the workspace:
 
 ---
 
-## 10. Troubleshooting
+## 11. Troubleshooting
 
 ### Common Issues
 
@@ -367,6 +566,9 @@ Route Azure Activity logs to the workspace:
 | UEBA not populating entities | Data needs time to process | Allow 24-48 hours after deployment for initial entity data |
 | `DailyQuotaReached` in workspace | Ingestion exceeded the 5 MB cap | Increase `dailyQuotaGb` or wait for the next UTC day reset |
 | Pipeline fails on deploy stage | Branch is not `main` | Deploy stage has a branch condition; merge to main or remove the condition for testing |
+| `RoleAssignmentExists` | Role already assigned to that principal | Safe to ignore — the template uses deterministic GUIDs so re-runs are idempotent |
+| `AuthorizationFailed` on role assignment | Pipeline identity lacks permission to assign roles | Assign `Owner` or `User Access Administrator` on the resource group to the pipeline identity |
+| `PrincipalNotFound` | Invalid or deleted Entra ID object ID | Verify the object ID exists: `az ad group show --group "<object-id>"` or `az ad user show --id "<object-id>"` |
 
 ### Useful Azure CLI Commands for Debugging
 
@@ -395,11 +597,23 @@ az deployment group show \
 # List registered providers
 az provider show --namespace Microsoft.SecurityInsights \
   --query "registrationState"
+
+# List Sentinel and Log Analytics role assignments
+az role assignment list \
+  --resource-group rg-sentinel-prod \
+  --query "[?contains(roleDefinitionName, 'Sentinel') || contains(roleDefinitionName, 'Log Analytics')].{Principal:principalName, Role:roleDefinitionName, Type:principalType}" \
+  --output table
+
+# Get Entra ID group object ID
+az ad group show --group "SG-Sentinel-Responders" --query id --output tsv
+
+# Get Entra ID user object ID
+az ad user show --id "user@contoso.com" --query id --output tsv
 ```
 
 ---
 
-## 11. Cost Considerations
+## 12. Cost Considerations
 
 ### Pay-As-You-Go (PerGB2018) Pricing
 
@@ -413,7 +627,20 @@ az provider show --namespace Microsoft.SecurityInsights \
 | **UEBA** | Free | No additional charge |
 | **Free connectors** | Free | Azure Activity, Entra ID, Defender, Threat Intelligence |
 
-### Monthly Cost Estimate at 5 MB/Day
+### Free Tier Allowance
+
+Microsoft Sentinel's free tier provides approximately **5 MB of data ingestion per user per day**. This means the daily cap you configure should reflect the number of licences/seats in your organisation:
+
+**Daily free allowance = 5 MB x number of licences/seats**
+
+For example:
+- **10 licences** = 50 MB/day free (`dailyQuotaGb: '0.049'`)
+- **100 licences** = 500 MB/day free (`dailyQuotaGb: '0.488'`)
+- **500 licences** = 2.44 GB/day free (`dailyQuotaGb: '2.441'`)
+
+Any ingestion beyond this free allowance is charged at the Pay-As-You-Go rate shown above. Set your `dailyQuotaGb` value accordingly to make full use of your free entitlement without incurring unexpected charges.
+
+### Monthly Cost Estimate at 5 MB/Day (Single User)
 
 | Metric | Value |
 |---|---|
@@ -422,7 +649,7 @@ az provider show --namespace Microsoft.SecurityInsights \
 | Monthly cost (LA + Sentinel) | ~$0.78/month |
 | Annual cost | ~$9.40/year |
 
-> With a 5 MB daily cap, this deployment is effectively a lab/learning environment with minimal cost. Increase `dailyQuotaGb` for production workloads.
+> With a 5 MB daily cap, this deployment is effectively a lab/learning environment or single-user setup with minimal cost. For production workloads, multiply by your licence count and increase `dailyQuotaGb` accordingly.
 
 ### Cost Optimisation Tips
 

@@ -49,6 +49,19 @@ variables:
   # --- UEBA ---
   enableUEBA: true
 
+  # --- IAM Role Assignments (Entra ID Object IDs) ---
+  # Pass Entra ID group or user object IDs as JSON arrays.
+  # Use security groups (recommended) rather than individual users.
+  # Leave as '[]' to skip a role assignment.
+  # See: https://learn.microsoft.com/en-us/azure/sentinel/roles
+  sentinelReaderPrincipalIds: '[]'               # View data, incidents, workbooks
+  sentinelResponderPrincipalIds: '[]'             # Reader + manage incidents (SOC analysts)
+  sentinelContributorPrincipalIds: '[]'           # Responder + create/edit rules, workbooks (security engineers)
+  sentinelPlaybookOperatorPrincipalIds: '[]'      # List, view, and run playbooks
+  logAnalyticsReaderPrincipalIds: '[]'            # Read-only access to Log Analytics workspace
+  logAnalyticsContributorPrincipalIds: '[]'       # Read/write access to Log Analytics workspace
+  iamPrincipalType: 'Group'                       # Group, User, or ServicePrincipal
+
   # --- Tags ---
   tagEnvironment: 'Production'
   tagManagedBy: 'AzureDevOps'
@@ -76,6 +89,45 @@ stages:
 
           - checkout: self
             displayName: 'Checkout Repository'
+
+          - task: AzureCLI@2
+            displayName: 'Register Required Resource Providers'
+            inputs:
+              azureSubscription: '$(azureSubscriptionId)'
+              scriptType: 'bash'
+              scriptLocation: 'inlineScript'
+              inlineScript: |
+                echo "=== Checking and registering required resource providers ==="
+                PROVIDERS=(
+                  "Microsoft.OperationalInsights"
+                  "Microsoft.OperationsManagement"
+                  "Microsoft.SecurityInsights"
+                )
+                for PROVIDER in "${PROVIDERS[@]}"; do
+                  STATE=$(az provider show --namespace "$PROVIDER" --query "registrationState" --output tsv 2>/dev/null)
+                  if [ "$STATE" == "Registered" ]; then
+                    echo "PASS: $PROVIDER is already registered"
+                  else
+                    echo "Registering $PROVIDER (current state: ${STATE:-NotFound})..."
+                    az provider register --namespace "$PROVIDER"
+                    echo "Registration initiated for $PROVIDER — may take a few minutes to complete"
+                  fi
+                done
+                echo ""
+                echo "=== Waiting for providers to finish registering ==="
+                for PROVIDER in "${PROVIDERS[@]}"; do
+                  echo -n "Waiting for $PROVIDER..."
+                  while true; do
+                    STATE=$(az provider show --namespace "$PROVIDER" --query "registrationState" --output tsv)
+                    if [ "$STATE" == "Registered" ]; then
+                      echo " Registered"
+                      break
+                    fi
+                    echo -n "."
+                    sleep 10
+                  done
+                done
+                echo "=== All required resource providers are registered ==="
 
           - task: AzureCLI@2
             displayName: 'Create Resource Group (if not exists)'
@@ -112,7 +164,14 @@ stages:
                     enableEntraIDConnector=$(enableEntraIDConnector) \
                     enableM365DefenderConnector=$(enableM365DefenderConnector) \
                     enableThreatIntelConnector=$(enableThreatIntelConnector) \
-                    enableUEBA=$(enableUEBA)
+                    enableUEBA=$(enableUEBA) \
+                    iamPrincipalType="$(iamPrincipalType)" \
+                  --parameters sentinelReaderPrincipalIds='$(sentinelReaderPrincipalIds)' \
+                  --parameters sentinelResponderPrincipalIds='$(sentinelResponderPrincipalIds)' \
+                  --parameters sentinelContributorPrincipalIds='$(sentinelContributorPrincipalIds)' \
+                  --parameters sentinelPlaybookOperatorPrincipalIds='$(sentinelPlaybookOperatorPrincipalIds)' \
+                  --parameters logAnalyticsReaderPrincipalIds='$(logAnalyticsReaderPrincipalIds)' \
+                  --parameters logAnalyticsContributorPrincipalIds='$(logAnalyticsContributorPrincipalIds)'
 
           - task: AzureCLI@2
             displayName: 'What-If Analysis (preview changes)'
@@ -134,7 +193,14 @@ stages:
                     enableEntraIDConnector=$(enableEntraIDConnector) \
                     enableM365DefenderConnector=$(enableM365DefenderConnector) \
                     enableThreatIntelConnector=$(enableThreatIntelConnector) \
-                    enableUEBA=$(enableUEBA)
+                    enableUEBA=$(enableUEBA) \
+                    iamPrincipalType="$(iamPrincipalType)" \
+                  --parameters sentinelReaderPrincipalIds='$(sentinelReaderPrincipalIds)' \
+                  --parameters sentinelResponderPrincipalIds='$(sentinelResponderPrincipalIds)' \
+                  --parameters sentinelContributorPrincipalIds='$(sentinelContributorPrincipalIds)' \
+                  --parameters sentinelPlaybookOperatorPrincipalIds='$(sentinelPlaybookOperatorPrincipalIds)' \
+                  --parameters logAnalyticsReaderPrincipalIds='$(logAnalyticsReaderPrincipalIds)' \
+                  --parameters logAnalyticsContributorPrincipalIds='$(logAnalyticsContributorPrincipalIds)'
 
   # =========================================================================
   # Stage 2: Deploy
@@ -156,6 +222,45 @@ stages:
 
                 - checkout: self
                   displayName: 'Checkout Repository'
+
+                - task: AzureCLI@2
+                  displayName: 'Register Required Resource Providers'
+                  inputs:
+                    azureSubscription: '$(azureSubscriptionId)'
+                    scriptType: 'bash'
+                    scriptLocation: 'inlineScript'
+                    inlineScript: |
+                      echo "=== Checking and registering required resource providers ==="
+                      PROVIDERS=(
+                        "Microsoft.OperationalInsights"
+                        "Microsoft.OperationsManagement"
+                        "Microsoft.SecurityInsights"
+                      )
+                      for PROVIDER in "${PROVIDERS[@]}"; do
+                        STATE=$(az provider show --namespace "$PROVIDER" --query "registrationState" --output tsv 2>/dev/null)
+                        if [ "$STATE" == "Registered" ]; then
+                          echo "PASS: $PROVIDER is already registered"
+                        else
+                          echo "Registering $PROVIDER (current state: ${STATE:-NotFound})..."
+                          az provider register --namespace "$PROVIDER"
+                          echo "Registration initiated for $PROVIDER — may take a few minutes to complete"
+                        fi
+                      done
+                      echo ""
+                      echo "=== Waiting for providers to finish registering ==="
+                      for PROVIDER in "${PROVIDERS[@]}"; do
+                        echo -n "Waiting for $PROVIDER..."
+                        while true; do
+                          STATE=$(az provider show --namespace "$PROVIDER" --query "registrationState" --output tsv)
+                          if [ "$STATE" == "Registered" ]; then
+                            echo " Registered"
+                            break
+                          fi
+                          echo -n "."
+                          sleep 10
+                        done
+                      done
+                      echo "=== All required resource providers are registered ==="
 
                 - task: AzureCLI@2
                   displayName: 'Create Resource Group (if not exists)'
@@ -204,7 +309,14 @@ stages:
                           enableEntraIDConnector=$(enableEntraIDConnector) \
                           enableM365DefenderConnector=$(enableM365DefenderConnector) \
                           enableThreatIntelConnector=$(enableThreatIntelConnector) \
-                          enableUEBA=$(enableUEBA)
+                          enableUEBA=$(enableUEBA) \
+                          iamPrincipalType="$(iamPrincipalType)" \
+                        --parameters sentinelReaderPrincipalIds='$(sentinelReaderPrincipalIds)' \
+                        --parameters sentinelResponderPrincipalIds='$(sentinelResponderPrincipalIds)' \
+                        --parameters sentinelContributorPrincipalIds='$(sentinelContributorPrincipalIds)' \
+                        --parameters sentinelPlaybookOperatorPrincipalIds='$(sentinelPlaybookOperatorPrincipalIds)' \
+                        --parameters logAnalyticsReaderPrincipalIds='$(logAnalyticsReaderPrincipalIds)' \
+                        --parameters logAnalyticsContributorPrincipalIds='$(logAnalyticsContributorPrincipalIds)'
 
                 - task: AzureCLI@2
                   displayName: 'Verify Deployment Outputs'
@@ -287,3 +399,23 @@ stages:
                 else
                   echo "WARN: Retention is ${RETENTION}, expected $(retentionInDays)"
                 fi
+
+          - task: AzureCLI@2
+            displayName: 'Verify IAM role assignments'
+            inputs:
+              azureSubscription: '$(azureSubscriptionId)'
+              scriptType: 'bash'
+              scriptLocation: 'inlineScript'
+              inlineScript: |
+                echo "=== Role Assignments on Resource Group ==="
+                az role assignment list \
+                  --resource-group "$(resourceGroupName)" \
+                  --query "[?contains(roleDefinitionName, 'Sentinel') || contains(roleDefinitionName, 'Log Analytics')].{Principal:principalName, Role:roleDefinitionName, Scope:scope}" \
+                  --output table
+
+                echo ""
+                echo "=== Sentinel & Log Analytics Role Summary ==="
+                az role assignment list \
+                  --resource-group "$(resourceGroupName)" \
+                  --query "[?contains(roleDefinitionName, 'Sentinel') || contains(roleDefinitionName, 'Log Analytics')] | length(@)" \
+                  --output tsv | xargs -I{} echo "Total Sentinel/Log Analytics role assignments: {}"

@@ -2,7 +2,7 @@
   "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
   "contentVersion": "1.0.0.0",
   "metadata": {
-    "description": "Deploys a Log Analytics Workspace with Microsoft Sentinel, free data connectors, and UEBA enabled."
+    "description": "Deploys a Log Analytics Workspace with Microsoft Sentinel, free data connectors, and UEBA enabled. The pipeline registers required resource providers (Microsoft.OperationalInsights, Microsoft.OperationsManagement, Microsoft.SecurityInsights) automatically before deployment."
   },
   "parameters": {
     "workspaceName": {
@@ -33,7 +33,7 @@
       "type": "string",
       "defaultValue": "0.005",
       "metadata": {
-        "description": "Daily ingestion cap in GB. 0.005 GB = 5 MB."
+        "description": "Daily ingestion cap in GB. 0.005 GB = 5 MB (free tier is ~5 MB per user per day — multiply by your total licence/seat count to calculate the appropriate cap)."
       }
     },
     "retentionInDays": {
@@ -102,11 +102,73 @@
       "metadata": {
         "description": "Resource tags applied to all deployed resources."
       }
+    },
+    "sentinelReaderPrincipalIds": {
+      "type": "array",
+      "defaultValue": [],
+      "metadata": {
+        "description": "Array of Entra ID group or user object IDs to assign the Microsoft Sentinel Reader role. Grants: view data, incidents, workbooks, and recommendations."
+      }
+    },
+    "sentinelResponderPrincipalIds": {
+      "type": "array",
+      "defaultValue": [],
+      "metadata": {
+        "description": "Array of Entra ID group or user object IDs to assign the Microsoft Sentinel Responder role. Grants: all Reader permissions plus manage incidents (triage, assign, dismiss)."
+      }
+    },
+    "sentinelContributorPrincipalIds": {
+      "type": "array",
+      "defaultValue": [],
+      "metadata": {
+        "description": "Array of Entra ID group or user object IDs to assign the Microsoft Sentinel Contributor role. Grants: all Responder permissions plus create/edit analytics rules, workbooks, and manage content hub."
+      }
+    },
+    "sentinelPlaybookOperatorPrincipalIds": {
+      "type": "array",
+      "defaultValue": [],
+      "metadata": {
+        "description": "Array of Entra ID group or user object IDs to assign the Microsoft Sentinel Playbook Operator role. Grants: list, view, and manually run playbooks."
+      }
+    },
+    "logAnalyticsReaderPrincipalIds": {
+      "type": "array",
+      "defaultValue": [],
+      "metadata": {
+        "description": "Array of Entra ID group or user object IDs to assign the Log Analytics Reader role. Grants: read-only access to Log Analytics workspace data and settings."
+      }
+    },
+    "logAnalyticsContributorPrincipalIds": {
+      "type": "array",
+      "defaultValue": [],
+      "metadata": {
+        "description": "Array of Entra ID group or user object IDs to assign the Log Analytics Contributor role. Grants: read/write access to Log Analytics workspace data, settings, and connected sources."
+      }
+    },
+    "iamPrincipalType": {
+      "type": "string",
+      "defaultValue": "Group",
+      "allowedValues": [
+        "Group",
+        "User",
+        "ServicePrincipal"
+      ],
+      "metadata": {
+        "description": "The type of principal being assigned roles. Use 'Group' for Entra ID security groups (recommended), 'User' for individual users, or 'ServicePrincipal' for app registrations/managed identities."
+      }
     }
   },
   "variables": {
     "sentinelSolutionName": "[concat('SecurityInsights(', parameters('workspaceName'), ')')]",
-    "sentinelSolutionProduct": "OMSGallery/SecurityInsights"
+    "sentinelSolutionProduct": "OMSGallery/SecurityInsights",
+    "roleDefinitionIds": {
+      "sentinelReader": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '8d289c81-5878-46d4-8554-54e1e3d8b5cb')]",
+      "sentinelResponder": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '3e150fc9-0a66-4beb-a78f-19f4c8e6ae15')]",
+      "sentinelContributor": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'ab8e14d6-4a74-4a29-9ba8-549422addade')]",
+      "sentinelPlaybookOperator": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '51d6186e-6489-4900-b93f-92e23144cca5')]",
+      "logAnalyticsReader": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '73c42c96-874c-492b-b04d-ab87d138a893')]",
+      "logAnalyticsContributor": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '92aaf0da-9dab-42b6-94a3-d43ce8d16293')]"
+    }
   },
   "resources": [
     {
@@ -239,6 +301,114 @@
             "state": "Enabled"
           }
         }
+      }
+    },
+    {
+      "condition": "[greater(length(parameters('sentinelReaderPrincipalIds')), 0)]",
+      "type": "Microsoft.Authorization/roleAssignments",
+      "apiVersion": "2022-04-01",
+      "copy": {
+        "name": "sentinelReaderAssignments",
+        "count": "[length(parameters('sentinelReaderPrincipalIds'))]"
+      },
+      "name": "[guid(resourceGroup().id, parameters('sentinelReaderPrincipalIds')[copyIndex()], 'SentinelReader')]",
+      "dependsOn": [
+        "[resourceId('Microsoft.OperationsManagement/solutions', variables('sentinelSolutionName'))]"
+      ],
+      "properties": {
+        "roleDefinitionId": "[variables('roleDefinitionIds').sentinelReader]",
+        "principalId": "[parameters('sentinelReaderPrincipalIds')[copyIndex()]]",
+        "principalType": "[parameters('iamPrincipalType')]"
+      }
+    },
+    {
+      "condition": "[greater(length(parameters('sentinelResponderPrincipalIds')), 0)]",
+      "type": "Microsoft.Authorization/roleAssignments",
+      "apiVersion": "2022-04-01",
+      "copy": {
+        "name": "sentinelResponderAssignments",
+        "count": "[length(parameters('sentinelResponderPrincipalIds'))]"
+      },
+      "name": "[guid(resourceGroup().id, parameters('sentinelResponderPrincipalIds')[copyIndex()], 'SentinelResponder')]",
+      "dependsOn": [
+        "[resourceId('Microsoft.OperationsManagement/solutions', variables('sentinelSolutionName'))]"
+      ],
+      "properties": {
+        "roleDefinitionId": "[variables('roleDefinitionIds').sentinelResponder]",
+        "principalId": "[parameters('sentinelResponderPrincipalIds')[copyIndex()]]",
+        "principalType": "[parameters('iamPrincipalType')]"
+      }
+    },
+    {
+      "condition": "[greater(length(parameters('sentinelContributorPrincipalIds')), 0)]",
+      "type": "Microsoft.Authorization/roleAssignments",
+      "apiVersion": "2022-04-01",
+      "copy": {
+        "name": "sentinelContributorAssignments",
+        "count": "[length(parameters('sentinelContributorPrincipalIds'))]"
+      },
+      "name": "[guid(resourceGroup().id, parameters('sentinelContributorPrincipalIds')[copyIndex()], 'SentinelContributor')]",
+      "dependsOn": [
+        "[resourceId('Microsoft.OperationsManagement/solutions', variables('sentinelSolutionName'))]"
+      ],
+      "properties": {
+        "roleDefinitionId": "[variables('roleDefinitionIds').sentinelContributor]",
+        "principalId": "[parameters('sentinelContributorPrincipalIds')[copyIndex()]]",
+        "principalType": "[parameters('iamPrincipalType')]"
+      }
+    },
+    {
+      "condition": "[greater(length(parameters('sentinelPlaybookOperatorPrincipalIds')), 0)]",
+      "type": "Microsoft.Authorization/roleAssignments",
+      "apiVersion": "2022-04-01",
+      "copy": {
+        "name": "sentinelPlaybookOperatorAssignments",
+        "count": "[length(parameters('sentinelPlaybookOperatorPrincipalIds'))]"
+      },
+      "name": "[guid(resourceGroup().id, parameters('sentinelPlaybookOperatorPrincipalIds')[copyIndex()], 'SentinelPlaybookOperator')]",
+      "dependsOn": [
+        "[resourceId('Microsoft.OperationsManagement/solutions', variables('sentinelSolutionName'))]"
+      ],
+      "properties": {
+        "roleDefinitionId": "[variables('roleDefinitionIds').sentinelPlaybookOperator]",
+        "principalId": "[parameters('sentinelPlaybookOperatorPrincipalIds')[copyIndex()]]",
+        "principalType": "[parameters('iamPrincipalType')]"
+      }
+    },
+    {
+      "condition": "[greater(length(parameters('logAnalyticsReaderPrincipalIds')), 0)]",
+      "type": "Microsoft.Authorization/roleAssignments",
+      "apiVersion": "2022-04-01",
+      "copy": {
+        "name": "logAnalyticsReaderAssignments",
+        "count": "[length(parameters('logAnalyticsReaderPrincipalIds'))]"
+      },
+      "name": "[guid(resourceGroup().id, parameters('logAnalyticsReaderPrincipalIds')[copyIndex()], 'LogAnalyticsReader')]",
+      "dependsOn": [
+        "[resourceId('Microsoft.OperationalInsights/workspaces', parameters('workspaceName'))]"
+      ],
+      "properties": {
+        "roleDefinitionId": "[variables('roleDefinitionIds').logAnalyticsReader]",
+        "principalId": "[parameters('logAnalyticsReaderPrincipalIds')[copyIndex()]]",
+        "principalType": "[parameters('iamPrincipalType')]"
+      }
+    },
+    {
+      "condition": "[greater(length(parameters('logAnalyticsContributorPrincipalIds')), 0)]",
+      "type": "Microsoft.Authorization/roleAssignments",
+      "apiVersion": "2022-04-01",
+      "copy": {
+        "name": "logAnalyticsContributorAssignments",
+        "count": "[length(parameters('logAnalyticsContributorPrincipalIds'))]"
+      },
+      "name": "[guid(resourceGroup().id, parameters('logAnalyticsContributorPrincipalIds')[copyIndex()], 'LogAnalyticsContributor')]",
+      "dependsOn": [
+        "[resourceId('Microsoft.OperationalInsights/workspaces', parameters('workspaceName'))]"
+      ],
+      "properties": {
+        "roleDefinitionId": "[variables('roleDefinitionIds').logAnalyticsContributor]",
+        "principalId": "[parameters('logAnalyticsContributorPrincipalIds')[copyIndex()]]",
+        "principalType": "[parameters('iamPrincipalType')]"
       }
     }
   ],
