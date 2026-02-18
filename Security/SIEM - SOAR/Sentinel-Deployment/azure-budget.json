@@ -2,9 +2,27 @@
   "$schema": "https://schema.management.azure.com/schemas/2018-05-01/subscriptionDeploymentTemplate.json#",
   "contentVersion": "1.0.0.0",
   "metadata": {
-    "description": "Creates an Azure budget with cost alert notifications at configurable soft and hard thresholds. Supports deployment at management group, subscription, or resource group scope. Sends email alerts when actual or forecasted spend reaches the configured percentages."
+    "description": "Creates an Azure budget with cost alert notifications at configurable soft and hard thresholds. Select a scope (Subscription or Resource Group), set your budget amount, and configure alert thresholds. Sends email alerts when actual or forecasted spend reaches the configured percentages."
   },
   "parameters": {
+    "budgetScope": {
+      "type": "string",
+      "defaultValue": "Subscription",
+      "allowedValues": [
+        "Subscription",
+        "ResourceGroup"
+      ],
+      "metadata": {
+        "description": "Choose the scope for this budget. 'Subscription' monitors all spending across the entire subscription. 'ResourceGroup' monitors only the resource group(s) specified in resourceGroupNames."
+      }
+    },
+    "resourceGroupNames": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "ONLY used when budgetScope is 'ResourceGroup'. Comma-separated list of resource group names to monitor. Example: rg-sentinel-prod,rg-security. Leave empty when budgetScope is 'Subscription'."
+      }
+    },
     "budgetName": {
       "type": "string",
       "defaultValue": "budget-monthly",
@@ -44,7 +62,7 @@
       "type": "string",
       "defaultValue": "",
       "metadata": {
-        "description": "Budget end date in YYYY-MM-01 format. Must be the first day of a month and within 10 years of the start date. Leave empty for a rolling budget with no end date."
+        "description": "Budget end date in YYYY-MM-01 format. Leave empty for a rolling budget with no end date. Must be the first day of a month and within 10 years of the start date."
       }
     },
     "softLimitPercentage": {
@@ -53,7 +71,7 @@
       "minValue": 1,
       "maxValue": 1000,
       "metadata": {
-        "description": "Percentage of budget amount that triggers the soft limit (warning) alert. Default is 80% — alerts when actual spend reaches this threshold."
+        "description": "Percentage of budget amount that triggers the soft limit (warning) alert. Default is 80%."
       }
     },
     "hardLimitPercentage": {
@@ -62,7 +80,7 @@
       "minValue": 1,
       "maxValue": 1000,
       "metadata": {
-        "description": "Percentage of budget amount that triggers the hard limit (critical) alert. Default is 100% — alerts when actual spend reaches the full budget."
+        "description": "Percentage of budget amount that triggers the hard limit (critical) alert. Default is 100%."
       }
     },
     "forecastAlertPercentage": {
@@ -71,7 +89,7 @@
       "minValue": 1,
       "maxValue": 1000,
       "metadata": {
-        "description": "Percentage of budget that triggers a forecasted spend alert. Default is 100% — alerts when Azure forecasts you will reach the full budget before the period ends."
+        "description": "Percentage of budget that triggers a forecasted spend alert. Default is 100%."
       }
     },
     "enableForecastAlert": {
@@ -94,40 +112,21 @@
         "Contributor"
       ],
       "metadata": {
-        "description": "Array of RBAC role names whose members should also receive notifications. Default: Owner and Contributor."
+        "description": "RBAC roles whose members also receive notifications. Default: Owner and Contributor."
       }
     },
     "actionGroupResourceIds": {
       "type": "array",
       "defaultValue": [],
       "metadata": {
-        "description": "Optional array of Azure Monitor Action Group resource IDs for advanced notification routing (Teams, SMS, webhooks, Logic Apps). Example: [\"/subscriptions/{sub-id}/resourceGroups/{rg}/providers/microsoft.insights/actionGroups/{name}\"]"
-      }
-    },
-    "resourceGroupFilter": {
-      "type": "array",
-      "defaultValue": [],
-      "metadata": {
-        "description": "Optional array of resource group names to scope the budget to specific resource groups within the subscription. Leave empty to apply the budget to the entire subscription. Example: [\"rg-sentinel-prod\", \"rg-security\"]"
-      }
-    },
-    "resourceFilter": {
-      "type": "array",
-      "defaultValue": [],
-      "metadata": {
-        "description": "Optional array of resource IDs to scope the budget to specific resources. Leave empty to apply the budget to the full scope."
-      }
-    },
-    "meterCategoryFilter": {
-      "type": "array",
-      "defaultValue": [],
-      "metadata": {
-        "description": "Optional array of meter categories to filter the budget (e.g., ['Virtual Machines', 'Storage']). Leave empty for all categories."
+        "description": "Optional Azure Monitor Action Group resource IDs for advanced notifications (Teams, SMS, webhooks). Leave empty if not needed."
       }
     }
   },
   "variables": {
     "contactEmailsArray": "[split(parameters('contactEmails'), ',')]",
+    "isResourceGroupScope": "[equals(parameters('budgetScope'), 'ResourceGroup')]",
+    "resourceGroupNamesArray": "[if(empty(parameters('resourceGroupNames')), createArray(), split(parameters('resourceGroupNames'), ','))]",
     "hasEndDate": "[not(empty(parameters('endDate')))]",
     "timePeriodWithEnd": {
       "startDate": "[parameters('startDate')]",
@@ -136,14 +135,8 @@
     "timePeriodNoEnd": {
       "startDate": "[parameters('startDate')]"
     },
-    "hasResourceGroupFilter": "[greater(length(parameters('resourceGroupFilter')), 0)]",
-    "hasResourceFilter": "[greater(length(parameters('resourceFilter')), 0)]",
-    "hasMeterCategoryFilter": "[greater(length(parameters('meterCategoryFilter')), 0)]",
-    "hasAnyFilter": "[or(or(variables('hasResourceGroupFilter'), variables('hasResourceFilter')), variables('hasMeterCategoryFilter'))]",
-    "filterWithValues": {
-      "resourceGroups": "[if(variables('hasResourceGroupFilter'), parameters('resourceGroupFilter'), createArray())]",
-      "resources": "[if(variables('hasResourceFilter'), parameters('resourceFilter'), createArray())]",
-      "meters": "[if(variables('hasMeterCategoryFilter'), parameters('meterCategoryFilter'), createArray())]"
+    "resourceGroupFilter": {
+      "resourceGroups": "[variables('resourceGroupNamesArray')]"
     },
     "softLimitNotification": {
       "enabled": true,
@@ -192,7 +185,7 @@
         "amount": "[parameters('budgetAmount')]",
         "timeGrain": "[parameters('timeGrain')]",
         "timePeriod": "[if(variables('hasEndDate'), variables('timePeriodWithEnd'), variables('timePeriodNoEnd'))]",
-        "filter": "[if(variables('hasAnyFilter'), variables('filterWithValues'), null())]",
+        "filter": "[if(variables('isResourceGroupScope'), variables('resourceGroupFilter'), null())]",
         "notifications": "[if(parameters('enableForecastAlert'), variables('notificationsWithForecast'), variables('notificationsWithoutForecast'))]"
       }
     }
@@ -205,6 +198,10 @@
     "budgetName": {
       "type": "string",
       "value": "[parameters('budgetName')]"
+    },
+    "budgetScope": {
+      "type": "string",
+      "value": "[if(variables('isResourceGroupScope'), concat('Resource Group(s): ', parameters('resourceGroupNames')), 'Subscription')]"
     },
     "budgetAmount": {
       "type": "int",
