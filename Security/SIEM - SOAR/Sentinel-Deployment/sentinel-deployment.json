@@ -212,13 +212,23 @@
       }
     },
     {
+      "type": "Microsoft.SecurityInsights/onboardingStates",
+      "apiVersion": "2024-03-01",
+      "name": "default",
+      "scope": "[concat('Microsoft.OperationalInsights/workspaces/', parameters('workspaceName'))]",
+      "dependsOn": [
+        "[resourceId('Microsoft.OperationsManagement/solutions', variables('sentinelSolutionName'))]"
+      ],
+      "properties": {}
+    },
+    {
       "condition": "[parameters('enableUEBA')]",
       "type": "Microsoft.SecurityInsights/settings",
       "apiVersion": "2024-03-01",
       "name": "Ueba",
       "scope": "[concat('Microsoft.OperationalInsights/workspaces/', parameters('workspaceName'))]",
       "dependsOn": [
-        "[resourceId('Microsoft.OperationsManagement/solutions', variables('sentinelSolutionName'))]"
+        "[extensionResourceId(resourceId('Microsoft.OperationalInsights/workspaces', parameters('workspaceName')), 'Microsoft.SecurityInsights/onboardingStates', 'default')]"
       ],
       "kind": "Ueba",
       "properties": {
@@ -232,7 +242,7 @@
       "name": "[guid(parameters('workspaceName'), 'AzureActivity')]",
       "scope": "[concat('Microsoft.OperationalInsights/workspaces/', parameters('workspaceName'))]",
       "dependsOn": [
-        "[resourceId('Microsoft.OperationsManagement/solutions', variables('sentinelSolutionName'))]"
+        "[extensionResourceId(resourceId('Microsoft.OperationalInsights/workspaces', parameters('workspaceName')), 'Microsoft.SecurityInsights/onboardingStates', 'default')]"
       ],
       "kind": "AzureActivity",
       "properties": {
@@ -246,7 +256,7 @@
       "name": "[guid(parameters('workspaceName'), 'AzureActiveDirectory')]",
       "scope": "[concat('Microsoft.OperationalInsights/workspaces/', parameters('workspaceName'))]",
       "dependsOn": [
-        "[resourceId('Microsoft.OperationsManagement/solutions', variables('sentinelSolutionName'))]"
+        "[extensionResourceId(resourceId('Microsoft.OperationalInsights/workspaces', parameters('workspaceName')), 'Microsoft.SecurityInsights/onboardingStates', 'default')]"
       ],
       "kind": "AzureActiveDirectory",
       "properties": {
@@ -271,7 +281,7 @@
       "name": "[guid(parameters('workspaceName'), 'MicrosoftDefenderAdvancedThreatProtection')]",
       "scope": "[concat('Microsoft.OperationalInsights/workspaces/', parameters('workspaceName'))]",
       "dependsOn": [
-        "[resourceId('Microsoft.OperationsManagement/solutions', variables('sentinelSolutionName'))]"
+        "[extensionResourceId(resourceId('Microsoft.OperationalInsights/workspaces', parameters('workspaceName')), 'Microsoft.SecurityInsights/onboardingStates', 'default')]"
       ],
       "kind": "MicrosoftDefenderAdvancedThreatProtection",
       "properties": {
@@ -290,7 +300,7 @@
       "name": "[guid(parameters('workspaceName'), 'MicrosoftThreatIntelligence')]",
       "scope": "[concat('Microsoft.OperationalInsights/workspaces/', parameters('workspaceName'))]",
       "dependsOn": [
-        "[resourceId('Microsoft.OperationsManagement/solutions', variables('sentinelSolutionName'))]"
+        "[extensionResourceId(resourceId('Microsoft.OperationalInsights/workspaces', parameters('workspaceName')), 'Microsoft.SecurityInsights/onboardingStates', 'default')]"
       ],
       "kind": "MicrosoftThreatIntelligence",
       "properties": {
@@ -313,7 +323,7 @@
       },
       "name": "[guid(resourceGroup().id, parameters('sentinelReaderPrincipalIds')[copyIndex()], 'SentinelReader')]",
       "dependsOn": [
-        "[resourceId('Microsoft.OperationsManagement/solutions', variables('sentinelSolutionName'))]"
+        "[extensionResourceId(resourceId('Microsoft.OperationalInsights/workspaces', parameters('workspaceName')), 'Microsoft.SecurityInsights/onboardingStates', 'default')]"
       ],
       "properties": {
         "roleDefinitionId": "[variables('roleDefinitionIds').sentinelReader]",
@@ -331,7 +341,7 @@
       },
       "name": "[guid(resourceGroup().id, parameters('sentinelResponderPrincipalIds')[copyIndex()], 'SentinelResponder')]",
       "dependsOn": [
-        "[resourceId('Microsoft.OperationsManagement/solutions', variables('sentinelSolutionName'))]"
+        "[extensionResourceId(resourceId('Microsoft.OperationalInsights/workspaces', parameters('workspaceName')), 'Microsoft.SecurityInsights/onboardingStates', 'default')]"
       ],
       "properties": {
         "roleDefinitionId": "[variables('roleDefinitionIds').sentinelResponder]",
@@ -349,7 +359,7 @@
       },
       "name": "[guid(resourceGroup().id, parameters('sentinelContributorPrincipalIds')[copyIndex()], 'SentinelContributor')]",
       "dependsOn": [
-        "[resourceId('Microsoft.OperationsManagement/solutions', variables('sentinelSolutionName'))]"
+        "[extensionResourceId(resourceId('Microsoft.OperationalInsights/workspaces', parameters('workspaceName')), 'Microsoft.SecurityInsights/onboardingStates', 'default')]"
       ],
       "properties": {
         "roleDefinitionId": "[variables('roleDefinitionIds').sentinelContributor]",
@@ -367,7 +377,7 @@
       },
       "name": "[guid(resourceGroup().id, parameters('sentinelPlaybookOperatorPrincipalIds')[copyIndex()], 'SentinelPlaybookOperator')]",
       "dependsOn": [
-        "[resourceId('Microsoft.OperationsManagement/solutions', variables('sentinelSolutionName'))]"
+        "[extensionResourceId(resourceId('Microsoft.OperationalInsights/workspaces', parameters('workspaceName')), 'Microsoft.SecurityInsights/onboardingStates', 'default')]"
       ],
       "properties": {
         "roleDefinitionId": "[variables('roleDefinitionIds').sentinelPlaybookOperator]",
