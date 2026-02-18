@@ -677,7 +677,7 @@ az deployment sub create \
   --parameters \
     budgetName="budget-sentinel-monthly" \
     budgetAmount=500 \
-    contactEmails='["secops@contoso.com"]'
+    contactEmails="secops@contoso.com"
 ```
 
 This creates alerts at **80% (soft limit)** and **100% (hard limit)** of the budget, plus a **forecasted spend** alert. The start date defaults to the 1st of the current month. See `README - Azure Budget.md` for full deployment options, examples, and instructions for all three scopes.

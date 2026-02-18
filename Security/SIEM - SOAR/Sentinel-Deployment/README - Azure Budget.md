@@ -40,7 +40,7 @@ The template creates up to three alert notifications:
 | Parameter | Type | Description |
 |---|---|---|
 | `budgetAmount` | int | Total budget amount in the subscription's billing currency (e.g., `1000` for £1,000) |
-| `contactEmails` | array | Email addresses to receive alert notifications. At least one required |
+| `contactEmails` | string | Comma-separated email addresses to receive alert notifications. At least one required (e.g., `admin@contoso.com,finance@contoso.com`) |
 
 ### Optional Parameters
 
@@ -87,7 +87,7 @@ az deployment sub create \
   --parameters \
     budgetName="budget-sentinel-monthly" \
     budgetAmount=500 \
-    contactEmails='["admin@contoso.com","finance@contoso.com"]'
+    contactEmails="admin@contoso.com,finance@contoso.com"
 ```
 
 **Azure PowerShell:**
@@ -99,7 +99,7 @@ New-AzDeployment `
   -TemplateFile "azure-budget.json" `
   -budgetName "budget-sentinel-monthly" `
   -budgetAmount 500 `
-  -contactEmails @("admin@contoso.com", "finance@contoso.com")
+  -contactEmails "admin@contoso.com,finance@contoso.com"
 ```
 
 ### Scope B: Resource Group Budget
@@ -115,7 +115,7 @@ az deployment sub create \
   --parameters \
     budgetName="budget-rg-sentinel-prod" \
     budgetAmount=200 \
-    contactEmails='["admin@contoso.com"]' \
+    contactEmails="admin@contoso.com" \
     resourceGroupFilter='["rg-sentinel-prod"]'
 ```
 
@@ -128,7 +128,7 @@ az deployment sub create \
   --parameters \
     budgetName="budget-security-rgs" \
     budgetAmount=1000 \
-    contactEmails='["security-team@contoso.com"]' \
+    contactEmails="security-team@contoso.com" \
     resourceGroupFilter='["rg-sentinel-prod","rg-defender-prod","rg-security-shared"]'
 ```
 
@@ -218,7 +218,7 @@ az deployment sub create \
   --parameters \
     budgetName="budget-sentinel-monthly" \
     budgetAmount=500 \
-    contactEmails='["secops@contoso.com"]'
+    contactEmails="secops@contoso.com"
 ```
 
 This creates (starting from the 1st of the current month):
@@ -241,7 +241,7 @@ az deployment sub create \
     softLimitPercentage=50 \
     hardLimitPercentage=90 \
     forecastAlertPercentage=80 \
-    contactEmails='["cfo@contoso.com","secops@contoso.com"]'
+    contactEmails="cfo@contoso.com,secops@contoso.com"
 ```
 
 This creates:
@@ -265,7 +265,7 @@ az deployment sub create \
   --parameters \
     budgetName="budget-with-teams" \
     budgetAmount=1000 \
-    contactEmails='["admin@contoso.com"]' \
+    contactEmails="admin@contoso.com" \
     actionGroupResourceIds="[\"$AG_ID\"]"
 ```
 
@@ -278,7 +278,7 @@ az deployment sub create \
   --parameters \
     budgetName="budget-sentinel-rg-only" \
     budgetAmount=200 \
-    contactEmails='["sentinel-admins@contoso.com"]' \
+    contactEmails="sentinel-admins@contoso.com" \
     resourceGroupFilter='["rg-sentinel-prod"]' \
     softLimitPercentage=75 \
     hardLimitPercentage=100
@@ -367,7 +367,7 @@ az deployment sub create \
     startDate="2026-03-01" \
     softLimitPercentage=70 \
     hardLimitPercentage=95 \
-    contactEmails='["secops@contoso.com","finance@contoso.com"]'
+    contactEmails="secops@contoso.com,finance@contoso.com"
 ```
 
 ---
