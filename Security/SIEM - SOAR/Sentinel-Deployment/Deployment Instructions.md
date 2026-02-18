@@ -670,17 +670,17 @@ Use the `azure-budget.json` template to create a budget with cost alert notifica
 **Quick deployment (subscription-level budget for £500/month):**
 
 ```bash
+# startDate defaults to the 1st of the current month
 az deployment sub create \
   --location "uksouth" \
   --template-file "azure-budget.json" \
   --parameters \
     budgetName="budget-sentinel-monthly" \
     budgetAmount=500 \
-    startDate="2026-03-01" \
     contactEmails='["secops@contoso.com"]'
 ```
 
-This creates alerts at **80% (soft limit)** and **100% (hard limit)** of the budget, plus a **forecasted spend** alert. See `README - Azure Budget.md` for full deployment options, examples, and instructions for all three scopes.
+This creates alerts at **80% (soft limit)** and **100% (hard limit)** of the budget, plus a **forecasted spend** alert. The start date defaults to the 1st of the current month. See `README - Azure Budget.md` for full deployment options, examples, and instructions for all three scopes.
 
 ---
 

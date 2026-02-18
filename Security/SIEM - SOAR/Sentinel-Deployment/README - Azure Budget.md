@@ -40,7 +40,6 @@ The template creates up to three alert notifications:
 | Parameter | Type | Description |
 |---|---|---|
 | `budgetAmount` | int | Total budget amount in the subscription's billing currency (e.g., `1000` for £1,000) |
-| `startDate` | string | Budget start date in `YYYY-MM-01` format. Must be the first day of a month and no earlier than the current month |
 | `contactEmails` | array | Email addresses to receive alert notifications. At least one required |
 
 ### Optional Parameters
@@ -49,6 +48,7 @@ The template creates up to three alert notifications:
 |---|---|---|---|
 | `budgetName` | string | `budget-monthly` | Name of the budget (must be unique within the scope) |
 | `timeGrain` | string | `Monthly` | Budget period: `Monthly`, `Quarterly`, `Annually`, `BillingMonth`, `BillingQuarter`, `BillingAnnual` |
+| `startDate` | string | *1st of current month* | Budget start date in `YYYY-MM-01` format. Defaults to the 1st of the current month using `utcNow('yyyy-MM-01')` |
 | `endDate` | string | *(empty — rolling)* | End date in `YYYY-MM-01` format. Leave empty for a rolling budget with no end date |
 | `softLimitPercentage` | int | `80` | Percentage threshold for the soft limit (warning) alert |
 | `hardLimitPercentage` | int | `100` | Percentage threshold for the hard limit (critical) alert |
@@ -74,31 +74,31 @@ A subscription-level budget monitors all spending across the entire subscription
 2. Click **Build your own template in the editor**
 3. Paste the contents of `azure-budget.json` and click **Save**
 4. Select your **Subscription** and **Region**
-5. Fill in the required parameters (`budgetAmount`, `startDate`, `contactEmails`)
+5. Fill in the required parameters (`budgetAmount`, `contactEmails`) — `startDate` defaults to the 1st of the current month
 6. Click **Review + Create**, then **Create**
 
 **Azure CLI:**
 
 ```bash
+# startDate defaults to the 1st of the current month — no need to specify it
 az deployment sub create \
   --location "uksouth" \
   --template-file "azure-budget.json" \
   --parameters \
     budgetName="budget-sentinel-monthly" \
     budgetAmount=500 \
-    startDate="2026-03-01" \
     contactEmails='["admin@contoso.com","finance@contoso.com"]'
 ```
 
 **Azure PowerShell:**
 
 ```powershell
+# startDate defaults to the 1st of the current month
 New-AzDeployment `
   -Location "uksouth" `
   -TemplateFile "azure-budget.json" `
   -budgetName "budget-sentinel-monthly" `
   -budgetAmount 500 `
-  -startDate "2026-03-01" `
   -contactEmails @("admin@contoso.com", "finance@contoso.com")
 ```
 
@@ -115,7 +115,6 @@ az deployment sub create \
   --parameters \
     budgetName="budget-rg-sentinel-prod" \
     budgetAmount=200 \
-    startDate="2026-03-01" \
     contactEmails='["admin@contoso.com"]' \
     resourceGroupFilter='["rg-sentinel-prod"]'
 ```
@@ -129,7 +128,6 @@ az deployment sub create \
   --parameters \
     budgetName="budget-security-rgs" \
     budgetAmount=1000 \
-    startDate="2026-03-01" \
     contactEmails='["security-team@contoso.com"]' \
     resourceGroupFilter='["rg-sentinel-prod","rg-defender-prod","rg-security-shared"]'
 ```
@@ -213,17 +211,17 @@ az rest --method PUT \
 ### Example 1: Basic Monthly Budget (£500)
 
 ```bash
+# startDate defaults to the 1st of the current month
 az deployment sub create \
   --location "uksouth" \
   --template-file "azure-budget.json" \
   --parameters \
     budgetName="budget-sentinel-monthly" \
     budgetAmount=500 \
-    startDate="2026-03-01" \
     contactEmails='["secops@contoso.com"]'
 ```
 
-This creates:
+This creates (starting from the 1st of the current month):
 - Soft limit alert at **£400** (80% of £500)
 - Hard limit alert at **£500** (100%)
 - Forecast alert when Azure predicts spend will reach **£500**
@@ -267,7 +265,6 @@ az deployment sub create \
   --parameters \
     budgetName="budget-with-teams" \
     budgetAmount=1000 \
-    startDate="2026-03-01" \
     contactEmails='["admin@contoso.com"]' \
     actionGroupResourceIds="[\"$AG_ID\"]"
 ```
@@ -281,7 +278,6 @@ az deployment sub create \
   --parameters \
     budgetName="budget-sentinel-rg-only" \
     budgetAmount=200 \
-    startDate="2026-03-01" \
     contactEmails='["sentinel-admins@contoso.com"]' \
     resourceGroupFilter='["rg-sentinel-prod"]' \
     softLimitPercentage=75 \

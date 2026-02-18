@@ -35,8 +35,9 @@
     },
     "startDate": {
       "type": "string",
+      "defaultValue": "[utcNow('yyyy-MM-01')]",
       "metadata": {
-        "description": "Budget start date in YYYY-MM-01 format. Must be the first day of a month and no earlier than the current month (e.g., 2026-03-01)."
+        "description": "Budget start date in YYYY-MM-01 format. Defaults to the 1st of the current month. Must be the first day of a month and no earlier than the current month."
       }
     },
     "endDate": {
